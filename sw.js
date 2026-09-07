@@ -1,4 +1,8 @@
-const CACHE_NAME = "calistenia-v2";
+// Bump this on every deploy that changes index.html (or any file in
+// CORE_ASSETS) — it's the only thing that makes an already-installed PWA
+// notice there's a new version and refetch instead of serving the old
+// cache-first copy forever.
+const CACHE_NAME = "calistenia-v3";
 const CORE_ASSETS = [
   "./",
   "./index.html",
