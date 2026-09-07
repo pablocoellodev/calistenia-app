@@ -165,6 +165,23 @@
   .checkbox.checked svg{stroke:#0B1220;}
   .checkbox svg{width:15px; height:15px; stroke:var(--good); stroke-width:3; fill:none;}
   .rpe-select{width:58px; padding:7px 2px; text-align:center;}
+
+  /* ---------- Tooltips de ayuda (icono "i" táctil) ---------- */
+  .info-tip{position:relative; display:inline-flex; align-items:center; flex-shrink:0;}
+  .info-tip-btn{
+    width:16px; height:16px; border-radius:50%; border:1px solid var(--text-faint); background:none;
+    color:var(--text-faint); font-size:10.5px; font-weight:700; line-height:1; cursor:pointer; padding:0;
+    display:flex; align-items:center; justify-content:center; font-family:Georgia, serif;
+  }
+  .info-tip-btn:active{color:var(--accent); border-color:var(--accent);}
+  .info-tip.invisible .info-tip-btn{visibility:hidden; pointer-events:none;}
+  .info-tip-bubble{
+    display:none; position:absolute; bottom:calc(100% + 7px); right:-6px; z-index:40;
+    width:190px; background:var(--surface-2); border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; font-size:12px; line-height:1.45; color:var(--text-dim);
+    box-shadow:0 10px 24px rgba(0,0,0,.4); text-align:left;
+  }
+  .info-tip-bubble.open{display:block;}
   .add-set-btn{margin-top:6px; font-size:12.5px; padding:6px 10px;}
 
   .empty-state{text-align:center; padding:34px 18px; color:var(--text-dim);}
@@ -1430,6 +1447,10 @@ function renderPlan(){
         <div class="set-idx">${setIdx+1}</div>
         <input type="number" class="reps-input" min="0" value="${set.reps}" inputmode="numeric">
         <div class="set-label">${ex.hold ? "seg" : "reps"}</div>
+        <span class="info-tip${setIdx===0 ? "" : " invisible"}">
+          <button type="button" class="info-tip-btn" aria-label="Qué es el RPE">i</button>
+          <span class="info-tip-bubble">Esfuerzo percibido (1-10): 10 = al fallo, no queda ni una rep; 6 = moderado, con margen de sobra. Si completas la sesión con RPE medio ≤6, la app te propone subir al siguiente ejercicio de la progresión.</span>
+        </span>
         <select class="rpe-select">
           <option value="">RPE</option>
           ${Array.from({length:10},(_,i)=>i+1).map(n=>`<option value="${n}" ${set.rpe==n?"selected":""}>${n}</option>`).join("")}
@@ -1919,6 +1940,22 @@ function renderHistory(){
 }
 
 /**
+ * Delegación global para los tooltips "i" (p.ej. la explicación del RPE).
+ * Un solo listener sirve para cualquier cantidad de tooltips que se generen
+ * dinámicamente (no hay que re-engancharlo cada vez que se re-renderiza el
+ * plan), y solo deja una burbuja abierta a la vez.
+ */
+function initInfoTips(){
+  document.addEventListener("click", (e)=>{
+    const btn = e.target.closest(".info-tip-btn");
+    document.querySelectorAll(".info-tip-bubble.open").forEach(bubble=>{
+      if(!btn || bubble !== btn.nextElementSibling) bubble.classList.remove("open");
+    });
+    if(btn) btn.nextElementSibling.classList.toggle("open");
+  });
+}
+
+/**
  * app.js — Punto de entrada (Composition Root)
  * Único responsable de arrancar la aplicación: inicializa cada módulo de
  * vista en el orden correcto y dispara el primer render de cada pestaña.
@@ -1931,6 +1968,7 @@ function renderHistory(){
   initDashboardEvents();
   initMuscleUpEvents();
   initLibraryEvents();
+  initInfoTips();
 
   renderPlan();
   renderMuscleHistory();
