@@ -202,6 +202,7 @@
   .ex-card .ex-top{display:flex; justify-content:space-between; align-items:center; gap:8px;}
   .ex-card .ex-name{font-weight:600; font-size:14.5px;}
   .ex-card .ex-meta{font-size:12.5px; color:var(--text-dim); margin-top:4px;}
+  .ex-card .ex-equipment{font-size:11.5px; color:var(--text-faint); margin-top:4px;}
   .progress-chain{display:flex; align-items:center; flex-wrap:wrap; gap:4px; margin-top:8px; font-size:12px; color:var(--text-faint);}
   .progress-chain .step{padding:3px 8px; border:1px solid var(--line); border-radius:999px;}
   .progress-chain .step.current{border-color:var(--accent); color:var(--accent);}
@@ -465,12 +466,18 @@
         <button class="chip" data-family="Freestyle">Freestyle</button>
       </div>
       <label class="field-label">Nivel</label>
-      <div class="chip-row" id="libLevelFilter">
+      <div class="chip-row" id="libLevelFilter" style="margin-bottom:12px;">
         <button class="chip active" data-level="Todos">Todos</button>
         <button class="chip" data-level="Principiante">Principiante</button>
         <button class="chip" data-level="Intermedio">Intermedio</button>
         <button class="chip" data-level="Avanzado">Avanzado</button>
         <button class="chip" data-level="Élite">Élite</button>
+      </div>
+      <label class="field-label">Material</label>
+      <div class="chip-row" id="libEquipmentFilter">
+        <button class="chip active" data-equipment="Todos">Todos</button>
+        <button class="chip" data-equipment="Sin material">Sin material</button>
+        <button class="chip" data-equipment="Con material">Con material</button>
       </div>
     </div>
     <div class="muted" id="libraryResultCount" style="font-size:12.5px; margin:0 4px 10px;"></div>
@@ -1867,6 +1874,7 @@ function initDashboardEvents(){
 
 let libLevelFilter = "Todos";
 let libFamilyFilter = "Todas";
+let libEquipmentFilter = "Todos";
 let libSearchQuery = "";
 
 /** Quita acentos y pasa a minúsculas para que la búsqueda no dependa de tildes. */
@@ -1881,12 +1889,13 @@ function renderLibrary(){
   container.innerHTML = "";
   const query = normalizeSearchText(libSearchQuery);
   const familiesToShow = libFamilyFilter === "Todas" ? FAMILIES : [libFamilyFilter];
-  const isFiltering = query !== "" || libLevelFilter !== "Todos" || libFamilyFilter !== "Todas";
+  const isFiltering = query !== "" || libLevelFilter !== "Todos" || libFamilyFilter !== "Todas" || libEquipmentFilter !== "Todos";
   let totalShown = 0;
 
   familiesToShow.forEach(fam=>{
     const items = DB[fam].filter(e =>
       (libLevelFilter==="Todos" || e.level===libLevelFilter) &&
+      (libEquipmentFilter==="Todos" || (libEquipmentFilter==="Sin material" ? e.equipment.length===0 : e.equipment.length>0)) &&
       (query==="" || normalizeSearchText(e.name).includes(query))
     );
     if(items.length===0) return;
@@ -1910,6 +1919,7 @@ function renderLibrary(){
           <span class="pill lvl-${ex.level}">${ex.level}</span>
         </div>
         <div class="ex-meta">${ex.desc}</div>
+        <div class="ex-equipment">${ex.equipment.length ? "🔧 " + ex.equipment.join(", ") : "✓ Sin material"}</div>
         <div class="progress-chain">
           ${chain.map(step => `<span class="step ${step.id===ex.id ? "current":""}">${step.name}</span>`).join('<span>→</span>')}
         </div>
@@ -1963,6 +1973,14 @@ function initLibraryEvents(){
       renderLibrary();
     });
   });
+  document.querySelectorAll("#libEquipmentFilter .chip").forEach(chip=>{
+    chip.addEventListener("click", ()=>{
+      document.querySelectorAll("#libEquipmentFilter .chip").forEach(c=>c.classList.remove("active"));
+      chip.classList.add("active");
+      libEquipmentFilter = chip.dataset.equipment;
+      renderLibrary();
+    });
+  });
   document.getElementById("libSearchInput").addEventListener("input", (e)=>{
     libSearchQuery = e.target.value;
     renderLibrary();
@@ -1970,10 +1988,12 @@ function initLibraryEvents(){
   document.getElementById("btnClearLibraryFilters").addEventListener("click", ()=>{
     libLevelFilter = "Todos";
     libFamilyFilter = "Todas";
+    libEquipmentFilter = "Todos";
     libSearchQuery = "";
     document.getElementById("libSearchInput").value = "";
     document.querySelectorAll("#libLevelFilter .chip").forEach(c=>c.classList.toggle("active", c.dataset.level==="Todos"));
     document.querySelectorAll("#libFamilyFilter .chip").forEach(c=>c.classList.toggle("active", c.dataset.family==="Todas"));
+    document.querySelectorAll("#libEquipmentFilter .chip").forEach(c=>c.classList.toggle("active", c.dataset.equipment==="Todos"));
     renderLibrary();
   });
 }
