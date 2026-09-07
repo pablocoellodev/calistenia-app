@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Calistenia · Cuaderno de Entreno</title>
+<title>Calistenia Pablo</title>
 
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0B1220">
@@ -12,7 +12,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Calistenia">
+<meta name="apple-mobile-web-app-title" content="Calistenia Pablo">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -50,7 +50,8 @@
     background:linear-gradient(180deg, var(--bg) 70%, rgba(14,16,19,0));
     padding:20px 18px 10px;
   }
-  header.topbar .kicker{color:var(--accent); font-size:13px; font-weight:600; font-family:var(--ff-display);}
+  header.topbar .app-brand{color:var(--text-faint); font-size:11px; font-weight:700; letter-spacing:.6px; text-transform:uppercase;}
+  header.topbar .kicker{color:var(--accent); font-size:13px; font-weight:600; font-family:var(--ff-display); margin-top:6px;}
   header.topbar h1{font-size:26px; line-height:1.1; margin-top:2px;}
   header.topbar .sub{color:var(--text-dim); font-size:13.5px; margin-top:4px;}
 
@@ -308,6 +309,7 @@
 <body>
 
 <header class="topbar">
+  <div class="app-brand">Calistenia Pablo</div>
   <div class="kicker" id="dateKicker">HOY</div>
   <h1 id="viewTitle">Entreno del día</h1>
   <div class="sub" id="viewSub">Construye tu sesión y márcala serie a serie.</div>
