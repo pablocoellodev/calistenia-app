@@ -430,6 +430,21 @@
   <!-- ===================== LIBRARY ===================== -->
   <section class="view" id="view-library">
     <div class="card">
+      <div class="field" style="margin-bottom:12px;">
+        <label class="field-label">Buscar ejercicio</label>
+        <input type="text" id="libSearchInput" placeholder="Nombre del ejercicio, ej. &quot;dominada&quot;" inputmode="search" autocomplete="off">
+      </div>
+      <label class="field-label">Familia</label>
+      <div class="chip-row" id="libFamilyFilter" style="margin-bottom:12px;">
+        <button class="chip active" data-family="Todas">Todas</button>
+        <button class="chip" data-family="Empuje">Empuje</button>
+        <button class="chip" data-family="Tirón">Tirón</button>
+        <button class="chip" data-family="Piernas">Piernas</button>
+        <button class="chip" data-family="Core">Core</button>
+        <button class="chip" data-family="Anillas">Anillas</button>
+        <button class="chip" data-family="Dinámicos">Dinámicos</button>
+        <button class="chip" data-family="Freestyle">Freestyle</button>
+      </div>
       <label class="field-label">Nivel</label>
       <div class="chip-row" id="libLevelFilter">
         <button class="chip active" data-level="Todos">Todos</button>
@@ -439,7 +454,13 @@
         <button class="chip" data-level="Élite">Élite</button>
       </div>
     </div>
+    <div class="muted" id="libraryResultCount" style="font-size:12.5px; margin:0 4px 10px;"></div>
     <div id="libraryList"></div>
+    <div class="empty-state" id="libraryEmpty" style="display:none;">
+      <div class="big">🔍</div>
+      <div>Ningún ejercicio coincide con esa búsqueda o esos filtros.</div>
+      <button type="button" class="btn cta" id="btnClearLibraryFilters">Quitar filtros</button>
+    </div>
   </section>
 
   <!-- ===================== HISTORY ===================== -->
@@ -1648,18 +1669,36 @@ function initDashboardEvents(){
  */
 
 let libLevelFilter = "Todos";
+let libFamilyFilter = "Todas";
+let libSearchQuery = "";
+
+/** Quita acentos y pasa a minúsculas para que la búsqueda no dependa de tildes. */
+function normalizeSearchText(text){
+  return (text || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
 
 function renderLibrary(){
   const container = document.getElementById("libraryList");
+  const emptyState = document.getElementById("libraryEmpty");
+  const resultCount = document.getElementById("libraryResultCount");
   container.innerHTML = "";
-  FAMILIES.forEach(fam=>{
-    const items = DB[fam].filter(e => libLevelFilter==="Todos" || e.level===libLevelFilter);
+  const query = normalizeSearchText(libSearchQuery);
+  const familiesToShow = libFamilyFilter === "Todas" ? FAMILIES : [libFamilyFilter];
+  const isFiltering = query !== "" || libLevelFilter !== "Todos" || libFamilyFilter !== "Todas";
+  let totalShown = 0;
+
+  familiesToShow.forEach(fam=>{
+    const items = DB[fam].filter(e =>
+      (libLevelFilter==="Todos" || e.level===libLevelFilter) &&
+      (query==="" || normalizeSearchText(e.name).includes(query))
+    );
     if(items.length===0) return;
+    totalShown += items.length;
     const details = document.createElement("details");
     details.className = "family-group";
-    details.open = libLevelFilter !== "Todos";
+    details.open = isFiltering;
     const summary = document.createElement("summary");
-    summary.innerHTML = `<span>${fam}</span><span class="arrow">›</span>`;
+    summary.innerHTML = `<span>${fam} <span class="faint">(${items.length})</span></span><span class="arrow">›</span>`;
     details.appendChild(summary);
 
     items.forEach(ex=>{
@@ -1702,6 +1741,12 @@ function renderLibrary(){
     });
     container.appendChild(details);
   });
+
+  container.style.display = totalShown > 0 ? "" : "none";
+  emptyState.style.display = totalShown > 0 ? "none" : "block";
+  resultCount.textContent = totalShown > 0
+    ? `${totalShown} ejercicio${totalShown===1 ? "" : "s"} encontrado${totalShown===1 ? "" : "s"}`
+    : "";
 }
 
 function initLibraryEvents(){
@@ -1712,6 +1757,27 @@ function initLibraryEvents(){
       libLevelFilter = chip.dataset.level;
       renderLibrary();
     });
+  });
+  document.querySelectorAll("#libFamilyFilter .chip").forEach(chip=>{
+    chip.addEventListener("click", ()=>{
+      document.querySelectorAll("#libFamilyFilter .chip").forEach(c=>c.classList.remove("active"));
+      chip.classList.add("active");
+      libFamilyFilter = chip.dataset.family;
+      renderLibrary();
+    });
+  });
+  document.getElementById("libSearchInput").addEventListener("input", (e)=>{
+    libSearchQuery = e.target.value;
+    renderLibrary();
+  });
+  document.getElementById("btnClearLibraryFilters").addEventListener("click", ()=>{
+    libLevelFilter = "Todos";
+    libFamilyFilter = "Todas";
+    libSearchQuery = "";
+    document.getElementById("libSearchInput").value = "";
+    document.querySelectorAll("#libLevelFilter .chip").forEach(c=>c.classList.toggle("active", c.dataset.level==="Todos"));
+    document.querySelectorAll("#libFamilyFilter .chip").forEach(c=>c.classList.toggle("active", c.dataset.family==="Todas"));
+    renderLibrary();
   });
 }
 
