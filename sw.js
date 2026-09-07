@@ -2,7 +2,7 @@
 // CORE_ASSETS) — it's the only thing that makes an already-installed PWA
 // notice there's a new version and refetch instead of serving the old
 // cache-first copy forever.
-const CACHE_NAME = "calistenia-v3";
+const CACHE_NAME = "calistenia-v4";
 const CORE_ASSETS = [
   "./",
   "./index.html",

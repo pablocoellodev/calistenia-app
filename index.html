@@ -16,10 +16,10 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-    --bg:#0B1220;
+    --bg:#0A0F1E;
     --surface:#121B2E;
     --surface-2:#1A2540;
     --line:#263354;
@@ -27,22 +27,35 @@
     --text-dim:#A9B4C7;
     --text-faint:#6B7794;
     --accent:#4C8DFF;
+    --accent-2:#22D3EE;
     --accent-dim:#1E3A6E;
+    --accent-gradient:linear-gradient(135deg, var(--accent), var(--accent-2));
     --good:#4ADE80;
     --warn:#FBBF24;
     --bad:#F87171;
-    --radius:14px;
-    --radius-sm:8px;
-    --ff-display:'Oswald', sans-serif;
+    --radius:16px;
+    --radius-sm:10px;
+    --shadow-card:0 1px 2px rgba(0,0,0,.24), 0 10px 28px -14px rgba(0,0,0,.6);
+    --shadow-glow:0 10px 26px -10px rgba(76,141,255,.45);
+    --ff-display:'Outfit', sans-serif;
     --ff-body:'Inter', sans-serif;
     --safe-bottom: env(safe-area-inset-bottom, 0px);
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{margin:0; padding:0; background:var(--bg); color:var(--text); font-family:var(--ff-body); -webkit-font-smoothing:antialiased;}
-  body{padding-bottom:calc(72px + var(--safe-bottom)); min-height:100vh;}
+  html,body{margin:0; padding:0; color:var(--text); font-family:var(--ff-body); -webkit-font-smoothing:antialiased;}
+  body{
+    padding-bottom:calc(72px + var(--safe-bottom)); min-height:100vh;
+    background:
+      radial-gradient(680px 420px at 12% -8%, rgba(76,141,255,.16), transparent 60%),
+      radial-gradient(520px 360px at 100% 0%, rgba(34,211,238,.10), transparent 55%),
+      var(--bg);
+    background-attachment:fixed;
+  }
   h1,h2,h3{font-family:var(--ff-display); font-weight:600; letter-spacing:.2px; margin:0;}
   button{font-family:inherit;}
   ::selection{background:var(--accent); color:#0B1220;}
+  a{color:var(--accent-2);}
+  .btn, .chip, .card, .info-tip-btn, .icon-btn{transition:transform .15s ease, box-shadow .2s ease, border-color .2s ease, background .2s ease;}
 
   /* ---------- App shell ---------- */
   header.topbar{
@@ -51,15 +64,18 @@
     padding:20px 18px 10px;
   }
   header.topbar .app-brand{color:var(--text-faint); font-size:11px; font-weight:700; letter-spacing:.6px; text-transform:uppercase;}
-  header.topbar .kicker{color:var(--accent); font-size:13px; font-weight:600; font-family:var(--ff-display); margin-top:6px;}
-  header.topbar h1{font-size:26px; line-height:1.1; margin-top:2px;}
+  header.topbar .kicker{color:var(--accent-2); font-size:13px; font-weight:700; font-family:var(--ff-display); margin-top:6px; letter-spacing:.3px;}
+  header.topbar h1{font-size:27px; line-height:1.15; margin-top:2px; font-weight:700;}
   header.topbar .sub{color:var(--text-dim); font-size:13.5px; margin-top:4px;}
+  header.topbar .today-date{display:flex; align-items:center; gap:6px; color:var(--text-dim); font-size:12.5px; font-weight:600; margin-top:7px;}
+  header.topbar .today-date::before{content:"📅"; font-size:12px;}
 
   .level-badge{
-    position:absolute; top:20px; right:18px; background:var(--surface-2); color:var(--accent);
+    position:absolute; top:20px; right:18px; background:var(--surface-2); color:var(--accent-2);
     border:1px solid var(--line); border-radius:999px; padding:6px 12px; font-size:12px; font-weight:700;
     cursor:pointer; font-family:var(--ff-display);
   }
+  .level-badge:active{transform:scale(.96);}
 
   .modal-overlay{
     position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center;
@@ -71,7 +87,7 @@
   }
   .report-title{font-family:var(--ff-display); font-size:16px; color:var(--text); margin-bottom:8px;}
   .report-line{font-size:13px; color:var(--text-dim); margin-top:6px; line-height:1.5;}
-  .chip-active{background:var(--accent) !important; color:#fff !important;}
+  .chip-active{background:var(--accent-gradient) !important; border-color:transparent !important; color:#fff !important;}
 
   main{padding:4px 18px 24px;}
   section.view{display:none;}
@@ -79,7 +95,7 @@
   @keyframes fade{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
 
   /* ---------- Cards ---------- */
-  .card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:16px; margin-bottom:14px;}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:16px; margin-bottom:14px; box-shadow:var(--shadow-card);}
   .card + .card{margin-top:0;}
   .card-title{font-family:var(--ff-display); font-size:15px; font-weight:600; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:8px;}
   .muted{color:var(--text-dim);}
@@ -91,22 +107,22 @@
     border-radius:var(--radius-sm); padding:11px 14px; font-size:14.5px; font-weight:600; cursor:pointer;
   }
   .btn:active{transform:scale(.97);}
-  .btn-primary{background:var(--accent); border-color:var(--accent); color:#FFFFFF;}
-  .btn-ghost{background:transparent;}
+  .btn-primary{background:var(--accent-gradient); border-color:transparent; color:#FFFFFF; box-shadow:var(--shadow-glow);}
+  .btn-ghost{background:transparent; box-shadow:none;}
   .btn-block{width:100%;}
 
   .btn-reco{
-    background:linear-gradient(135deg, var(--accent), #7AB8FF); border:none; color:#FFFFFF;
-    font-family:var(--ff-display); font-size:15.5px; font-weight:600; padding:15px 14px;
-    border-radius:var(--radius); margin-bottom:14px; box-shadow:0 8px 22px rgba(255,90,46,.28);
+    background:var(--accent-gradient); border:none; color:#FFFFFF;
+    font-family:var(--ff-display); font-size:15.5px; font-weight:700; padding:15px 14px;
+    border-radius:var(--radius); margin-bottom:14px; box-shadow:var(--shadow-glow);
   }
   .btn-reco:active{transform:scale(.98);}
 
   .reco-card{
     background:var(--surface); border:1px solid var(--accent-dim); border-radius:var(--radius);
-    padding:14px 16px; margin-bottom:14px;
+    padding:14px 16px; margin-bottom:14px; box-shadow:var(--shadow-card);
   }
-  .reco-card .reco-title{font-family:var(--ff-display); font-size:14px; font-weight:600; color:var(--accent); margin-bottom:8px;}
+  .reco-card .reco-title{font-family:var(--ff-display); font-size:14px; font-weight:600; color:var(--accent-2); margin-bottom:8px;}
   .reco-card .reco-line{font-size:13px; color:var(--text-dim); padding:5px 0; border-top:1px dashed var(--line);}
   .reco-card .reco-line:first-of-type{border-top:none;}
   .btn-sm{padding:7px 10px; font-size:13px; border-radius:7px;}
@@ -125,13 +141,13 @@
     border:1px solid var(--line); background:var(--surface-2); color:var(--text-dim);
     padding:7px 13px; border-radius:999px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap;
   }
-  .chip.active{background:var(--accent); border-color:var(--accent); color:#FFFFFF;}
+  .chip.active{background:var(--accent-gradient); border-color:transparent; color:#FFFFFF; box-shadow:0 4px 14px -6px rgba(76,141,255,.55);}
 
   .pill{display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; background:var(--surface-2); color:var(--text-dim); border:1px solid var(--line);}
   .pill.lvl-Principiante{color:#B8C2D6; border-color:#3A4A6B;}
   .pill.lvl-Intermedio{color:var(--good); border-color:#14532D;}
   .pill.lvl-Avanzado{color:var(--warn); border-color:#78350F;}
-  .pill.lvl-Élite{color:var(--accent); border-color:var(--accent-dim);}
+  .pill.lvl-Élite{color:var(--accent-2); border-color:var(--accent-dim);}
 
   /* ---------- Bottom nav ---------- */
   nav.tabbar{
@@ -165,6 +181,19 @@
   .checkbox.checked svg{stroke:#0B1220;}
   .checkbox svg{width:15px; height:15px; stroke:var(--good); stroke-width:3; fill:none;}
   .rpe-select{width:58px; padding:7px 2px; text-align:center;}
+
+  /* ---------- Tira semanal (mini calendario de constancia) ---------- */
+  .week-strip{display:flex; justify-content:space-between; gap:6px; margin-bottom:14px;}
+  .week-strip .day-cell{flex:1; display:flex; flex-direction:column; align-items:center; gap:5px;}
+  .week-strip .day-label{font-size:10.5px; color:var(--text-faint); font-weight:700; text-transform:uppercase; letter-spacing:.3px;}
+  .week-strip .day-dot{
+    width:32px; height:32px; border-radius:50%; border:1.5px solid var(--line); background:var(--surface);
+    display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:var(--text-dim);
+  }
+  .week-strip .day-cell.today .day-label{color:var(--accent-2);}
+  .week-strip .day-cell.today .day-dot{border-color:var(--accent-2); color:var(--accent-2); box-shadow:0 0 0 3px rgba(34,211,238,.16);}
+  .week-strip .day-cell.trained .day-dot{background:var(--accent-gradient); border-color:transparent; color:#fff; box-shadow:0 4px 12px -6px rgba(76,141,255,.6);}
+  .week-strip .day-cell.future .day-dot{opacity:.45;}
 
   /* ---------- Tooltips de ayuda (icono "i" táctil) ---------- */
   .info-tip{position:relative; display:inline-flex; align-items:center; flex-shrink:0;}
@@ -331,6 +360,7 @@
   <div class="kicker" id="dateKicker">HOY</div>
   <h1 id="viewTitle">Entreno del día</h1>
   <div class="sub" id="viewSub">Construye tu sesión y márcala serie a serie.</div>
+  <div class="today-date" id="todayDate"></div>
   <button class="level-badge" id="btnUserLevel" type="button" title="Cambiar nivel de partida">Nivel: —</button>
 </header>
 
@@ -350,6 +380,7 @@
 
   <!-- ===================== DASHBOARD ===================== -->
   <section class="view active" id="view-dashboard">
+    <div class="week-strip" id="weekStrip"></div>
     <div class="card" id="levelOnboardingCard" style="display:none;">
       <div class="card-title">
         ¿Cuál es tu nivel de partida?
@@ -1573,6 +1604,60 @@ function switchView(view){
   document.getElementById("viewTitle").textContent = title;
   document.getElementById("viewSub").textContent = sub;
   document.getElementById("fabSave").style.display = view==="dashboard" ? "flex" : "none";
+  document.getElementById("todayDate").style.display = view==="dashboard" ? "flex" : "none";
+}
+
+/** Fecha de hoy en español ("Sábado, 7 de septiembre"), se ve en el dashboard nada más entrar. */
+function renderTodayDate(){
+  const el = document.getElementById("todayDate");
+  if(!el) return;
+  const formatted = new Intl.DateTimeFormat("es-ES", {weekday:"long", day:"numeric", month:"long"}).format(new Date());
+  el.textContent = formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
+const WEEK_DAY_LETTERS = ["L","M","X","J","V","S","D"];
+
+/**
+ * Clave de fecha LOCAL (YYYY-MM-DD) a partir de un Date o un ISO string.
+ * Deliberadamente no usa toISOString().slice(0,10): eso da la fecha en UTC,
+ * que puede caer en el día siguiente (o anterior) al local según la zona
+ * horaria y la hora — justo el bug que haría que una sesión guardada "hoy"
+ * se marcase en la casilla de mañana en la tira semanal.
+ */
+function toLocalDateKey(dateOrIso){
+  const d = new Date(dateOrIso);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+/**
+ * Mini calendario de constancia: los 7 días de la semana actual (lunes a
+ * domingo), marcando con un check en degradado los días en los que ya se
+ * guardó una sesión y resaltando el día de hoy. Lee AppState.sessions
+ * (campo `date`, ISO) — no necesita datos nuevos ni un componente de
+ * calendario completo para responder "¿qué día es y qué llevo esta semana?".
+ */
+function renderWeekStrip(){
+  const el = document.getElementById("weekStrip");
+  if(!el) return;
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const todayIdx = (today.getDay() + 6) % 7; // lunes=0 ... domingo=6
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - todayIdx);
+  const trainedDates = new Set(AppState.sessions.map(s => toLocalDateKey(s.date)));
+
+  el.innerHTML = "";
+  for(let i=0; i<7; i++){
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const isToday = i === todayIdx;
+    const isFuture = d.getTime() > today.getTime();
+    const trained = trainedDates.has(toLocalDateKey(d));
+    const cell = document.createElement("div");
+    cell.className = "day-cell" + (isToday ? " today" : "") + (trained ? " trained" : "") + (isFuture && !isToday ? " future" : "");
+    cell.innerHTML = `<div class="day-label">${WEEK_DAY_LETTERS[i]}</div><div class="day-dot">${trained ? "✓" : d.getDate()}</div>`;
+    el.appendChild(cell);
+  }
 }
 
 function initNavigation(){
@@ -1886,6 +1971,7 @@ function initDashboardEvents(){
     persistNotes();
     renderPlan();
     renderHistory();
+    renderWeekStrip();
     switchView("history");
     renderSessionReportModal(session.report);
 
@@ -2166,6 +2252,7 @@ function renderHistory(){
       AppState.sessions = AppState.sessions.filter(s=>s.id !== session.id);
       persistSessions();
       renderHistory();
+      renderWeekStrip();
     });
     list.appendChild(el);
   });
@@ -2206,6 +2293,8 @@ function initInfoTips(){
   renderMuscleHistory();
   renderLibrary();
   renderHistory();
+  renderTodayDate();
+  renderWeekStrip();
 })();
 
 /* ======================================================================
@@ -2400,6 +2489,16 @@ function runUnitTests(){
       _assertTrue(repRangeForLevel(level, true).label.includes("seg"));
       _assertTrue(repRangeForLevel(level, false).label.includes("reps"));
     });
+  });
+  test("toLocalDateKey() da AAAA-MM-DD con ceros a la izquierda, a partir de la fecha LOCAL", () => {
+    // Antes de esta función, la tira semanal usaba toISOString().slice(0,10)
+    // (fecha en UTC) para decidir en qué casilla marcar una sesión guardada,
+    // lo que en husos horarios adelantados a UTC podía pintar el check en el
+    // día siguiente al real. toLocalDateKey() usa los getters locales
+    // (getFullYear/getMonth/getDate), nunca getUTC* ni toISOString().
+    _assertEqual(toLocalDateKey(new Date(2026, 0, 5)), "2026-01-05"); // 5 de enero, mes 0-indexado
+    _assertEqual(toLocalDateKey(new Date(2026, 11, 31)), "2026-12-31");
+    _assertEqual(toLocalDateKey(new Date(2026, 8, 7, 23, 59)), "2026-09-07"); // cerca de medianoche, sigue siendo el mismo día local
   });
   test("pickExerciseForFamily() sin historial devuelve el ejercicio base de la familia", () => {
     const {exercise} = pickExerciseForFamily("Empuje", []);
