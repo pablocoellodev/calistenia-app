@@ -1036,9 +1036,9 @@ function persistUserLevel(){ saveJSON(STORE_KEYS.userLevel, AppState.userLevel);
 /**
  * Combinaciones de familias válidas para "Cuerpo completo". Sustituye a la
  * antigua rotación fija DAY_BLOCKS: en vez de avanzar ciegamente por el
- * número de sesiones guardadas, pickSmartFamilyCombo() mira qué se entrenó
- * en la sesión más reciente y prioriza la combinación que menos se solape
- * con eso (para dar descanso a lo trabajado justo antes).
+ * número de sesiones guardadas, pickSmartFamilyCombo() mira cuánto hace que
+ * se entrenó cada familia (no solo si fue en la última sesión) y prioriza
+ * la combinación cuyas dos familias llevan más tiempo descansadas.
  */
 const FAMILY_PAIRS = [
   ["Empuje","Piernas"], ["Tirón","Core"], ["Anillas","Dinámicos"],
@@ -1046,28 +1046,36 @@ const FAMILY_PAIRS = [
   ["Anillas","Core"], ["Dinámicos","Tirón"], ["Freestyle","Core"]
 ];
 
-/** Familias entrenadas en las últimas `lookback` sesiones guardadas (más reciente primero). */
-function getRecentTrainedFamilies(sessions, lookback=1){
-  const set = new Set();
-  sessions.slice(0, lookback).forEach(s => (s.exercises||[]).forEach(e => { if(e.family) set.add(e.family); }));
-  return set;
+/**
+ * Índice (0 = sesión más reciente, 1 = la anterior...) de la última vez que
+ * se entrenó `family`, o Infinity si nunca aparece en el historial. Cuanto
+ * mayor el número, más tiempo lleva esa familia sin trabajarse.
+ */
+function familyRecencyScore(family, sessions){
+  for(let i=0; i<sessions.length; i++){
+    if((sessions[i].exercises||[]).some(e => e.family===family)) return i;
+  }
+  return Infinity;
 }
 
 /**
- * Elige qué combinación de FAMILY_PAIRS entrenar hoy: prioriza la(s) que
- * menos solapen con lo entrenado en la sesión más reciente. Si varias
- * combinaciones empatan (p. ej. sin historial, todas solapan 0), rota
- * entre ellas usando sessions.length para no repetir siempre la misma.
- * Puro: no lee AppState ni el DOM.
+ * Elige qué combinación de FAMILY_PAIRS entrenar hoy: para cada par, mira
+ * cuál de sus dos familias se entrenó MÁS RECIENTEMENTE (la que menos ha
+ * descansado, el "cuello de botella" del par) y prioriza el par donde esa
+ * familia lleva más tiempo sin tocarse. Esto generaliza el criterio antiguo
+ * (que solo miraba si algo se solapaba con la última sesión) a todo el
+ * historial disponible, así que distingue "se entrenó hace 2 sesiones" de
+ * "se entrenó hace 6". Si varias combinaciones empatan (p. ej. sin
+ * historial, todas en Infinity), rota entre ellas usando sessions.length
+ * para no repetir siempre la misma. Puro: no lee AppState ni el DOM.
  */
 function pickSmartFamilyCombo(sessions){
-  const recent = getRecentTrainedFamilies(sessions, 1);
   const scored = FAMILY_PAIRS.map(pair => ({
     pair,
-    overlap: pair.filter(f => recent.has(f)).length
+    rest: Math.min(...pair.map(f => familyRecencyScore(f, sessions)))
   }));
-  const minOverlap = Math.min(...scored.map(s => s.overlap));
-  const candidates = scored.filter(s => s.overlap === minOverlap);
+  const mostRest = Math.max(...scored.map(s => s.rest));
+  const candidates = scored.filter(s => s.rest === mostRest);
   const chosen = candidates[sessions.length % candidates.length].pair;
   return { label: chosen.join(" + "), families: chosen };
 }
@@ -1153,10 +1161,42 @@ function makeSets(n, repValue){
   return Array.from({length:n}, ()=>({reps:repValue, done:false, rpe:null}));
 }
 
+/** Series completadas, RPE medio y si el intento cuenta como "dominado", a partir de un ejercicio ya guardado en una sesión. */
+function summarizeAttempt(sEx){
+  const allDone = sEx.sets.length>0 && sEx.sets.every(s=>s.done);
+  const rpes = sEx.sets.map(s=>s.rpe).filter(r=>r!==null && r!==undefined);
+  const avgRpe = rpes.length ? rpes.reduce((a,b)=>a+b,0)/rpes.length : null;
+  return { allDone, avgRpe, mastered: allDone && (avgRpe===null || avgRpe<=7) };
+}
+
+/** Últimos `limit` intentos guardados de un ejercicio EXACTO (mismo id), más reciente primero. */
+function recentAttemptsForExercise(exId, family, sessions, limit){
+  const attempts = [];
+  for(const session of sessions){
+    const found = session.exercises.find(e => e.family===family && findExerciseByName(family, e.name)?.id === exId);
+    if(found){
+      attempts.push(found);
+      if(attempts.length >= limit) break;
+    }
+  }
+  return attempts;
+}
+
+/** El ejercicio de la familia cuya progressesTo apunta a `exId` (el paso anterior en la cadena), o null si ya es el primero. */
+function findPreviousInChain(family, exId){
+  return DB[family].find(e => e.progressesTo === exId) || null;
+}
+
+const STALL_SESSIONS_FOR_DELOAD = 3; // intentos seguidos sin dominar el MISMO ejercicio antes de proponer un deload
+
 /**
  * Recorre el historial (más reciente primero) buscando la última vez que se
- * entrenó algo de esta familia, y decide si toca repetirlo o progresar.
- * Puro: recibe `sessions` como argumento, no lee estado global.
+ * entrenó algo de esta familia, y decide si toca repetirlo, progresar, o
+ * (si llevas STALL_SESSIONS_FOR_DELOAD intentos seguidos sin dominar
+ * exactamente el mismo ejercicio) retroceder un paso en la progresión con
+ * menos volumen — un deload real en vez de repetir indefinidamente algo que
+ * no está funcionando. Puro: recibe `sessions` como argumento, no lee
+ * estado global.
  */
 function pickExerciseForFamily(family, sessions, userLevel="Principiante"){
   for(const session of sessions){
@@ -1164,14 +1204,20 @@ function pickExerciseForFamily(family, sessions, userLevel="Principiante"){
       if(sEx.family !== family) continue;
       const match = findExerciseByName(family, sEx.name);
       if(!match) continue;
-      const allDone = sEx.sets.length>0 && sEx.sets.every(s=>s.done);
-      const rpes = sEx.sets.map(s=>s.rpe).filter(r=>r!==null && r!==undefined);
-      const avgRpe = rpes.length ? rpes.reduce((a,b)=>a+b,0)/rpes.length : null;
-      const mastered = allDone && (avgRpe===null || avgRpe<=7);
+      const {avgRpe, mastered} = summarizeAttempt(sEx);
       if(mastered && match.progressesTo){
         const next = DB[family].find(e=>e.id===match.progressesTo);
         const chosen = next || match;
         return {exercise: chosen, reason: `Completaste todas las series de "${match.name}"${avgRpe!==null ? ` con RPE medio ${avgRpe.toFixed(1)}` : ""} → toca progresar.`};
+      }
+      const stallStreak = recentAttemptsForExercise(match.id, family, sessions, STALL_SESSIONS_FOR_DELOAD);
+      const isStalled = stallStreak.length === STALL_SESSIONS_FOR_DELOAD && stallStreak.every(a => !summarizeAttempt(a).mastered);
+      if(isStalled){
+        const prev = findPreviousInChain(family, match.id);
+        if(prev){
+          return {exercise: prev, sets: 3, reason: `Llevas ${STALL_SESSIONS_FOR_DELOAD} sesiones seguidas sin dominar "${match.name}" → deload a "${prev.name}" con menos volumen para consolidar antes de reintentarlo.`};
+        }
+        return {exercise: match, sets: 3, reason: `Llevas ${STALL_SESSIONS_FOR_DELOAD} sesiones seguidas sin dominar "${match.name}" y ya es la base de la progresión → repites con menos volumen (deload) para recuperar.`};
       }
       return {exercise: match, reason: `Repites "${match.name}" para consolidar antes de progresar.`};
     }
@@ -1180,16 +1226,29 @@ function pickExerciseForFamily(family, sessions, userLevel="Principiante"){
   return {exercise: first, reason: `Sin historial en ${family.toLowerCase()} todavía — empezamos en tu nivel (${first.level}).`};
 }
 
-/** Elige `count` ejercicios distintos al principal dentro de la misma familia. */
+/**
+ * Elige `count` ejercicios de la familia (distintos al principal) priorizando
+ * los que llevan MÁS TIEMPO sin entrenarse: para cada candidato busca en qué
+ * sesión pasada apareció por última vez (Infinity si nunca) y se queda con
+ * los más "olvidados" primero. Sustituye la rotación ciega anterior
+ * (offset = sessions.length % pool.length), que no miraba el historial real
+ * y podía repetir un accesorio recién trabajado mientras otro llevaba
+ * semanas sin tocarse.
+ */
 function pickAccessoriesForFamily(family, excludeId, count, sessions){
   const pool = DB[family].filter(e=>e.id!==excludeId);
   if(pool.length===0) return [];
-  const offset = sessions.length % pool.length;
-  const picks = [];
-  for(let i=0; i<count && i<pool.length; i++){
-    picks.push(pool[(offset+i) % pool.length]);
-  }
-  return picks;
+  const scored = pool.map(ex => ({
+    ex,
+    staleness: (()=>{
+      for(let i=0; i<sessions.length; i++){
+        if(sessions[i].exercises.some(e => e.family===family && e.name===ex.name)) return i;
+      }
+      return Infinity;
+    })()
+  }));
+  scored.sort((a,b) => b.staleness - a.staleness); // más olvidado primero; empates mantienen el orden del catálogo (sort estable)
+  return scored.slice(0, count).map(s=>s.ex);
 }
 
 /** Estimación aproximada de duración total (trabajo + descanso + calentamiento). */
@@ -1230,10 +1289,11 @@ function buildRecommendedPlan(sessions, families, userLevel="Principiante"){
   const summaryLines = [`<em>Calentamiento sugerido: 5-8 min de movilidad de hombro, cadera y muñeca antes de empezar.</em>`];
 
   families.forEach(fam=>{
-    const {exercise: mainEx, reason} = pickExerciseForFamily(fam, sessions, userLevel);
+    const {exercise: mainEx, reason, sets: setsOverride} = pickExerciseForFamily(fam, sessions, userLevel);
+    const mainSets = setsOverride || 4;
     const mainRange = repRangeForLevel(mainEx.level, !!mainEx.hold);
-    planItems.push({ exId: mainEx.id, sets: makeSets(4, mainRange.mid) });
-    summaryLines.push(`<strong>${fam} · principal:</strong> ${mainEx.name} (${mainEx.level}) — 4 × ${mainRange.label}. ${reason}`);
+    planItems.push({ exId: mainEx.id, sets: makeSets(mainSets, mainRange.mid) });
+    summaryLines.push(`<strong>${fam} · principal:</strong> ${mainEx.name} (${mainEx.level}) — ${mainSets} × ${mainRange.label}. ${reason}`);
 
     const accessories = pickAccessoriesForFamily(fam, mainEx.id, 3, sessions);
     accessories.forEach(acc=>{
@@ -2163,7 +2223,32 @@ function runUnitTests(){
   test("pickExerciseForFamily() repite si el RPE es alto o falta una serie", () => {
     const sessions = [{exercises:[{name:"Dominada negativa", family:"Tirón",
       sets:[{reps:5,done:true,rpe:9},{reps:5,done:false,rpe:9},{reps:5,done:true,rpe:9}]}]}];
-    _assertEqual(pickExerciseForFamily("Tirón", sessions).exercise.id, "tir_dominada_negativa");
+    const result = pickExerciseForFamily("Tirón", sessions);
+    _assertEqual(result.exercise.id, "tir_dominada_negativa");
+    _assertTrue(result.sets === undefined, "con menos de 3 intentos fallidos no debería tocar el volumen");
+  });
+  test("pickExerciseForFamily() hace deload (retrocede en la cadena y baja el volumen) tras 3 sesiones seguidas sin dominar el mismo ejercicio", () => {
+    const failedAttempt = {name:"Dominada negativa", family:"Tirón",
+      sets:[{reps:5,done:true,rpe:9},{reps:5,done:false,rpe:9},{reps:5,done:true,rpe:9}]};
+    const sessions = [{exercises:[failedAttempt]}, {exercises:[failedAttempt]}, {exercises:[failedAttempt]}];
+    const result = pickExerciseForFamily("Tirón", sessions);
+    _assertEqual(result.exercise.id, "tir_remo_invertido_bajo"); // paso anterior en la cadena
+    _assertEqual(result.sets, 3);
+  });
+  test("pickExerciseForFamily() si ya está en la base de la cadena, hace deload repitiendo el mismo ejercicio con menos volumen", () => {
+    const failedAttempt = {name:"Flexiones de rodillas", family:"Empuje",
+      sets:[{reps:10,done:true,rpe:9},{reps:10,done:false,rpe:9},{reps:10,done:true,rpe:9}]};
+    const sessions = [{exercises:[failedAttempt]}, {exercises:[failedAttempt]}, {exercises:[failedAttempt]}];
+    const result = pickExerciseForFamily("Empuje", sessions);
+    _assertEqual(result.exercise.id, "emp_flexion_rodillas");
+    _assertEqual(result.sets, 3);
+  });
+  test("pickAccessoriesForFamily() prioriza los ejercicios que llevan más tiempo sin entrenarse", () => {
+    // "Fondos en banco" se entrenó en la sesión más reciente; el resto de Empuje nunca se ha tocado.
+    const sessions = [{exercises:[{name:"Fondos en banco", family:"Empuje", sets:[{reps:8,done:true,rpe:5}]}]}];
+    const accessories = pickAccessoriesForFamily("Empuje", "emp_flexion_estandar", 3, sessions);
+    _assertTrue(!accessories.some(a => a.id === "emp_fondo_banco"),
+      "no debería repetir el accesorio recién entrenado habiendo otros sin tocar todavía");
   });
   test("buildRecommendedPlan() con 'cuerpo completo' genera 9 ejercicios (2 familias x 4 + 1 Freestyle)", () => {
     const families = pickSmartFamilyCombo([]).families;
@@ -2271,6 +2356,21 @@ function runUnitTests(){
     const combo = pickSmartFamilyCombo([]);
     const isValidPair = FAMILY_PAIRS.some(p => p[0]===combo.families[0] && p[1]===combo.families[1]);
     _assertTrue(isValidPair);
+  });
+  test("familyRecencyScore() distingue cuánto hace que se entrenó una familia, no solo si fue en la última sesión", () => {
+    const sessions = [
+      {exercises:[{family:"Empuje"}]},   // hace 1 sesión
+      {exercises:[{family:"Piernas"}]}   // hace 2 sesiones
+    ];
+    _assertEqual(familyRecencyScore("Empuje", sessions), 0);
+    _assertEqual(familyRecencyScore("Piernas", sessions), 1);
+    _assertEqual(familyRecencyScore("Core", sessions), Infinity);
+  });
+  test("pickSmartFamilyCombo() mira más allá de la última sesión: no repite una familia entrenada hace 2 sesiones si hay alternativas totalmente descansadas", () => {
+    const sessions = [{exercises:[{family:"Empuje"}]}, {exercises:[{family:"Tirón"}]}];
+    const combo = pickSmartFamilyCombo(sessions);
+    _assertTrue(!combo.families.includes("Empuje") && !combo.families.includes("Tirón"),
+      `no debería incluir Empuje ni Tirón, eligió: ${combo.families.join(" + ")}`);
   });
   _groupEnd();
 
