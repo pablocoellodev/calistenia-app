@@ -1,0 +1,17 @@
+{
+  "name": "Calistenia · Cuaderno de Entreno",
+  "short_name": "Calistenia",
+  "description": "Cuaderno de entrenamiento de calistenia: planifica sesiones, registra series y sigue tu progreso.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B1220",
+  "theme_color": "#0B1220",
+  "lang": "es",
+  "icons": [
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
