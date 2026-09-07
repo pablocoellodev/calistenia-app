@@ -482,39 +482,35 @@
  * utilidades de consulta (findExercise, findExerciseByName, buildChain).
  * No depende del DOM ni de localStorage: 100% testable de forma aislada.
  *
- * Campo `photo`: imagen incrustada como data URI base64 (`data:image/jpeg;base64,...`)
- * cuando existe una foto real y verificada del ejercicio. `null` cuando no la
- * hay (ver el bloque de fotos justo debajo para la tarjeta de respaldo, sin
- * monigotes de palitos).
+ * Campo `photo`: se mantiene por compatibilidad de forma, pero siempre es
+ * `null`. Ya NO se usan fotografías reales de terceros — ver la decisión de
+ * arquitectura más abajo. La imagen que ve el usuario para cada ejercicio es
+ * una ilustración vectorial (SVG) propia, generada en tiempo de ejecución por
+ * `resolveExercisePhoto()` a partir de `EXERCISE_POSE` (ver el bloque de
+ * medios justo debajo).
  * Campo `videoData`: data URI base64 de un vídeo (`data:video/mp4;base64,...`),
- * exactamente en el mismo espíritu que `photo` — 100% local, sin depender de
- * red. Hoy está a `null` en los 86 ejercicios: no hay ningún host de vídeo
- * en la lista blanca de red de este entorno, y descargar clips de YouTube
- * para incrustarlos no es algo que este asistente haga (términos de
- * servicio y derechos de autor de terceros). La infraestructura para
- * reproducirlo inline con `<video>` ya existe (ver resolveExerciseVideo) y
- * funcionará en cuanto ese campo tenga bytes reales — por ejemplo si se
- * suben clips propios cortos para incrustarlos uno a uno.
+ * pensado en el mismo espíritu que `photo` — 100% local, sin depender de
+ * red. Hoy está a `null` en los 86 ejercicios y así se queda: no existe una
+ * fuente de vídeo real de estos 86 ejercicios sobre la que este asistente
+ * tenga derechos de uso, y descargar clips de YouTube o de un banco de stock
+ * para incrustarlos no es algo que vaya a hacer aunque fuese técnicamente
+ * posible (términos de servicio y derechos de autor de terceros). La
+ * infraestructura para reproducirlo inline con `<video>` ya existe (ver
+ * resolveExerciseVideo) y funcionará en cuanto este campo tenga bytes reales
+ * — por ejemplo si en algún momento se graban y suben clips propios.
  * Campo `howTo`: explicación paso a paso (postura inicial, ejecución, errores
  * comunes) para la vista de detalle — no confundir con `desc`, la frase corta
  * que usan las tarjetas resumidas y que se mantiene intacta.
  *
- * DECISIÓN DE ARQUITECTURA — por qué las fotos están INCRUSTADAS y no enlazadas:
- * Se probaron enlaces externos reales tres veces (GitHub free-exercise-db
- * con rama "main", GitHub con commit fijado, y Wikimedia Commons) — las tres
- * fallaron al cargar en el navegador real del usuario pese a responder
- * HTTP 200 en pruebas directas desde este entorno. Que dos CDNs radicalmente
- * distintos (GitHub y Wikimedia) fallasen exactamente igual descarta que sea
- * un problema de "este host en concreto está bloqueado": apunta a que ninguna
- * petición de red externa llega a completarse en el contexto donde se abre
- * el archivo. La única solución que no depende de esa incógnita es incrustar
- * los bytes de la imagen directamente en el HTML (base64): así no hay ninguna
- * petición de red que hacer — el archivo es 100% autocontenido.
- * Se incrustaron 29 fotos reales únicas (de free-exercise-db, descargadas y
- * verificadas byte a byte) cubriendo 36 de los 86 ejercicios (algunas se
- * reutilizan entre variantes muy próximas del mismo movimiento). El resto
- * usa la tarjeta de respaldo — no se dejó ningún enlace externo sin
- * verificar para evitar un cuarto intento fallido.
+ * DECISIÓN DE ARQUITECTURA — por qué ya no hay fotografías reales:
+ * La versión anterior incrustaba 36 fotografías reales como data URI. Una
+ * auditoría de seguridad antes de vender este producto detectó que esas
+ * fotos mostraban personas identificables en gimnasios reales (una con la
+ * marca de un gimnasio concreto visible) sin licencia verificable, y al
+ * menos una no correspondía siquiera al ejercicio etiquetado. Embeber fotos
+ * de terceros sin licencia en un producto comercial es un riesgo de derechos
+ * de autor y de imagen que no compensa el valor visual que aportaban, así
+ * que se retiraron las 36 y se sustituyeron por ilustraciones propias.
  */
 const DB = {
   "Empuje": [
@@ -660,18 +656,16 @@ function buildChain(startEx, family){
  * media.js — Capa de medios (Media Layer)
  * Responsabilidad única: resolver qué imagen mostrar para un ejercicio.
  *
- * Decisión de arquitectura (documentada explícitamente):
- * Ya intentamos dos veces enlazar fotos externas verificadas (HTTP 200 real)
- * y no cargaron en el entorno del usuario. Por eso esta capa:
- *   1) Usa la foto real (`ex.photo`) cuando existe una coincidencia genuina
- *      y verificada — no se inventan URLs de Unsplash/Pexels sin verificar,
- *      porque eso repetiría el mismo fallo con otro dominio.
- *   2) Cuando no hay foto real fiable, NO dibuja un muñeco de palitos.
- *      Genera una tarjeta plana mínima (nombre + nivel + icono neutro de
- *      "sin foto"), coherente con el resto de la UI y sin pretender que
- *      existe una fotografía que en realidad no existe.
- *   3) Toda imagen <img> lleva manejo de error (ver attachPhotoErrorHandling)
- *      para que un enlace roto nunca se muestre como icono roto del navegador.
+ * Decisión de arquitectura: la imagen de cada ejercicio es una ilustración
+ * vectorial (SVG) dibujada por este mismo archivo, nunca una fotografía.
+ * `EXERCISE_POSE` asigna a cada uno de los 86 ejercicios una plantilla de
+ * `POSES` (una figura de palitos simplificada + el mobiliario mínimo: barra,
+ * anillas, banco, caja...) y `figureSvg()` la renderiza. Ventajas sobre
+ * incrustar fotos: cero riesgo de derechos de autor o de imagen de terceros
+ * (es dibujo propio), un peso final ínfimo comparado con JPEGs en base64, y
+ * una explicación exacta de qué representa cada icono en el código mismo.
+ * Si un id no tiene pose asignada, se usa `buildNoPhotoCard()` como respaldo
+ * neutro (nombre + nivel, sin figura humana).
  */
 
 const MEDIA_BG = "#1A2540";
@@ -679,7 +673,7 @@ const MEDIA_BORDER = "#263354";
 const MEDIA_TEXT = "#A9B4C7";
 const MEDIA_ACCENT = "#4C8DFF";
 
-/** Tarjeta plana de respaldo: sin foto real disponible. Sin figuras humanas. */
+/** Tarjeta plana de respaldo: usada solo si un id no tiene pose asignada. */
 function buildNoPhotoCard(name, level){
   const safeName = (name || "Ejercicio").replace(/&/g,"&amp;").replace(/</g,"&lt;");
   const safeLevel = (level || "").replace(/&/g,"&amp;").replace(/</g,"&lt;");
@@ -689,35 +683,202 @@ function buildNoPhotoCard(name, level){
     <circle cx="98" cy="70" r="7" fill="none" stroke="${MEDIA_TEXT}" stroke-width="3"/>
     <path d="M78 100 L108 78 L128 92 L162 62" stroke="${MEDIA_TEXT}" stroke-width="3" fill="none"/>
     <line x1="70" y1="44" x2="170" y2="120" stroke="${MEDIA_ACCENT}" stroke-width="3"/>
-    <text x="120" y="132" font-size="10.5" fill="${MEDIA_TEXT}" text-anchor="middle" font-family="Arial, sans-serif">Sin foto real disponible</text>
+    <text x="120" y="132" font-size="10.5" fill="${MEDIA_TEXT}" text-anchor="middle" font-family="Arial, sans-serif">Sin ilustración disponible</text>
     <text x="120" y="148" font-size="10.5" fill="${MEDIA_ACCENT}" text-anchor="middle" font-family="Arial, sans-serif">${safeName}${safeLevel ? " · " + safeLevel : ""}</text>
   </svg>`;
   return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
 }
 
+/** Un segmento recto de la figura de palitos (torso/brazo/pierna). */
+function figureLimb(a, b){
+  return `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${MEDIA_ACCENT}" stroke-width="4" stroke-linecap="round"/>`;
+}
+
+/** Elementos de entorno reutilizables (barra, anillas, banco, caja...). */
+const PROP_SVG = {
+  floor: `<line x1="8" y1="98" x2="192" y2="98" stroke="${MEDIA_BORDER}" stroke-width="2"/>`,
+  bar: `<line x1="72" y1="15" x2="128" y2="15" stroke="${MEDIA_TEXT}" stroke-width="4" stroke-linecap="round"/><line x1="76" y1="15" x2="76" y2="98" stroke="${MEDIA_BORDER}" stroke-width="3"/><line x1="124" y1="15" x2="124" y2="98" stroke="${MEDIA_BORDER}" stroke-width="3"/>`,
+  lowbar: `<line x1="82" y1="55" x2="118" y2="55" stroke="${MEDIA_TEXT}" stroke-width="4" stroke-linecap="round"/><line x1="82" y1="55" x2="82" y2="98" stroke="${MEDIA_BORDER}" stroke-width="3"/><line x1="118" y1="55" x2="118" y2="98" stroke="${MEDIA_BORDER}" stroke-width="3"/>`,
+  rings: `<line x1="94" y1="5" x2="94" y2="18" stroke="${MEDIA_BORDER}" stroke-width="2"/><circle cx="94" cy="25" r="7" fill="none" stroke="${MEDIA_TEXT}" stroke-width="3"/><line x1="106" y1="5" x2="106" y2="18" stroke="${MEDIA_BORDER}" stroke-width="2"/><circle cx="106" cy="25" r="7" fill="none" stroke="${MEDIA_TEXT}" stroke-width="3"/>`,
+  ringsLow: `<line x1="63" y1="80" x2="63" y2="90" stroke="${MEDIA_BORDER}" stroke-width="2"/><circle cx="63" cy="96" r="6" fill="none" stroke="${MEDIA_TEXT}" stroke-width="3"/>`,
+  box: `<rect x="138" y="70" width="36" height="28" fill="none" stroke="${MEDIA_TEXT}" stroke-width="3"/>`,
+  bench: `<rect x="44" y="78" width="36" height="10" rx="2" fill="none" stroke="${MEDIA_TEXT}" stroke-width="3"/>`,
+  wall: `<line x1="152" y1="4" x2="152" y2="98" stroke="${MEDIA_BORDER}" stroke-width="3"/>`,
+  pole: `<line x1="100" y1="4" x2="100" y2="98" stroke="${MEDIA_TEXT}" stroke-width="4"/>`,
+  wheel: `<circle cx="34" cy="94" r="8" fill="none" stroke="${MEDIA_TEXT}" stroke-width="3"/>`,
+  anchor: `<path d="M92 98 L100 90 L108 98" stroke="${MEDIA_BORDER}" stroke-width="3" fill="none"/>`,
+  arrowShift: `<path d="M78 20 L70 26 L78 32 M122 20 L130 26 L122 32" stroke="${MEDIA_TEXT}" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
+  arrowRotate: `<path d="M100 24 a18 18 0 1 1 -12.7 5.3" stroke="${MEDIA_TEXT}" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M84 24 l4 9 l9 -4 Z" fill="${MEDIA_TEXT}"/>`,
+  arrowUp: `<path d="M165 90 L165 60 M158 68 L165 58 L172 68" stroke="${MEDIA_TEXT}" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
+  arrowForward: `<path d="M165 92 L185 92 M177 85 L186 92 L177 99" stroke="${MEDIA_TEXT}" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
+  burst: `<path d="M165 55 L172 45 M172 55 L179 47 M165 62 L175 62" stroke="${MEDIA_ACCENT}" stroke-width="2.5" fill="none" stroke-linecap="round"/>`
+};
+
 /**
- * Resuelve la imagen a usar para un ejercicio.
- * @returns {{src:string, isRealPhoto:boolean}}
+ * Plantillas de pose: puntos {head,neck,hip,handL,handR,footL,footR} en un
+ * lienzo de 200x120, más los props (mobiliario) que se dibujan con ella por
+ * defecto. Cada ejercicio de EXERCISE_POSE apunta a una de estas plantillas
+ * y opcionalmente sustituye sus props (p.ej. cambiar "bar" por "rings" para
+ * la versión en anillas del mismo movimiento).
  */
-function resolveExercisePhoto(ex){
-  if(ex && ex.photo){
-    return { src: ex.photo, isRealPhoto: true };
-  }
-  return { src: buildNoPhotoCard(ex && ex.name, ex && ex.level), isRealPhoto: false };
+const POSES = {
+  plank_pushup:      { pts:{head:[62,60],neck:[78,68],hip:[128,66],handL:[68,96],footL:[184,94]}, props:["floor"] },
+  pike:              { pts:{head:[88,52],neck:[96,56],hip:[132,28],handL:[92,96],footL:[168,96]}, props:["floor"] },
+  pike_elevated:     { pts:{head:[70,58],neck:[80,60],hip:[124,30],handL:[76,96],footL:[168,72]}, props:["floor","box"] },
+  handstand_wall:    { pts:{head:[100,86],neck:[100,70],hip:[100,40],handL:[90,98],handR:[110,98],footL:[96,8],footR:[104,8]}, props:["floor","wall"] },
+  handstand_free:    { pts:{head:[100,86],neck:[100,70],hip:[100,40],handL:[90,98],handR:[110,98],footL:[96,8],footR:[104,8]}, props:["floor"] },
+  dip_bench:         { pts:{head:[78,48],neck:[86,58],hip:[102,66],handL:[70,78],footL:[172,94]}, props:["floor","bench"] },
+  dip_bars:          { pts:{head:[100,42],neck:[100,58],hip:[100,74],handL:[100,58],footL:[100,96]}, props:["floor","lowbar"] },
+  archer_pushup:     { pts:{head:[62,60],neck:[78,68],hip:[128,66],handL:[70,96],handR:[38,86],footL:[184,94]}, props:["floor"] },
+  row_high:          { pts:{head:[92,46],neck:[100,54],hip:[144,74],handL:[100,15],footL:[190,94]}, props:["bar","floor"] },
+  row_low:           { pts:{head:[86,58],neck:[96,64],hip:[150,80],handL:[100,55],footL:[192,94]}, props:["lowbar","floor"] },
+  pullup_hang:       { pts:{head:[100,24],neck:[100,34],hip:[100,68],handL:[100,15],footL:[100,96]}, props:["bar"] },
+  one_arm_hang:      { pts:{head:[96,24],neck:[96,34],hip:[96,68],handL:[96,15],handR:[110,55],footL:[96,96]}, props:["bar"] },
+  archer_pullup:     { pts:{head:[84,26],neck:[85,36],hip:[85,70],handL:[85,15],handR:[115,18],footL:[85,96]}, props:["bar"] },
+  typewriter_pullup: { pts:{head:[100,24],neck:[100,34],hip:[100,68],handL:[80,15],handR:[120,15],footL:[100,96]}, props:["bar","arrowShift"] },
+  l_pullup:          { pts:{head:[100,22],neck:[100,32],hip:[100,55],handL:[100,15],footL:[155,52]}, props:["bar"] },
+  squat_stand:       { pts:{head:[100,20],neck:[100,32],hip:[100,64],handL:[130,54],footL:[112,97]}, props:["floor"] },
+  squat_split:       { pts:{head:[92,22],neck:[92,34],hip:[92,64],handL:[118,52],footL:[100,97],footR:[150,80]}, props:["floor","bench"] },
+  squat_pistol:      { pts:{head:[92,44],neck:[92,54],hip:[96,80],handL:[122,58],footL:[92,97],footR:[160,68]}, props:["floor"] },
+  shrimp_squat:      { pts:{head:[92,42],neck:[92,52],hip:[96,80],handL:[118,58],footL:[92,97],footR:[70,80]}, props:["floor"] },
+  glute_bridge:      { pts:{head:[38,90],neck:[54,90],hip:[102,68],handL:[54,90],footL:[140,90]}, props:["floor"] },
+  glute_bridge_1leg: { pts:{head:[38,90],neck:[54,90],hip:[102,68],handL:[54,90],footL:[140,90],footR:[150,48]}, props:["floor"] },
+  nordic_curl:       { pts:{head:[62,38],neck:[74,48],hip:[100,80],handL:[84,54],footL:[100,97]}, props:["floor","anchor"] },
+  lunge:             { pts:{head:[96,38],neck:[96,48],hip:[100,74],handL:[100,60],footL:[132,97],footR:[68,97]}, props:["floor"] },
+  plank_front:       { pts:{head:[60,64],neck:[80,72],hip:[130,70],handL:[68,90],footL:[182,90]}, props:["floor"] },
+  hollow_hold:       { pts:{head:[46,74],neck:[64,82],hip:[100,90],handL:[28,80],footL:[160,76]}, props:["floor"] },
+  hanging_leg_raise: { pts:{head:[100,24],neck:[100,34],hip:[100,58],handL:[100,15],footL:[152,42]}, props:["bar"] },
+  hanging_raise_hi:  { pts:{head:[100,24],neck:[100,34],hip:[100,55],handL:[100,15],footL:[124,18]}, props:["bar"] },
+  dragon_flag:       { pts:{head:[38,80],neck:[50,84],hip:[92,55],handL:[50,84],footL:[142,20]}, props:["bench"] },
+  lsit:              { pts:{head:[78,44],neck:[88,58],hip:[96,64],handL:[86,86],footL:[160,64]}, props:["floor"] },
+  lsit_tuck:         { pts:{head:[78,44],neck:[88,58],hip:[96,64],handL:[86,86],footL:[118,68]}, props:["floor"] },
+  plank_side:        { pts:{head:[74,58],neck:[86,66],hip:[128,64],handL:[80,90],handR:[86,38],footL:[174,86]}, props:["floor"] },
+  ab_rollout_knees:  { pts:{head:[68,66],neck:[82,74],hip:[104,84],handL:[38,92],footL:[104,97]}, props:["floor","wheel"] },
+  ab_rollout_stand:  { pts:{head:[64,50],neck:[80,62],hip:[104,80],handL:[36,92],footL:[104,97]}, props:["floor","wheel"] },
+  russian_twist:     { pts:{head:[84,48],neck:[92,58],hip:[100,84],handL:[58,54],footL:[140,78]}, props:["floor"] },
+  muscle_up:         { pts:{head:[88,18],neck:[100,20],hip:[110,26],handL:[100,15],footL:[132,46]}, props:["bar"] },
+  skin_the_cat:      { pts:{head:[100,76],neck:[100,60],hip:[100,50],handL:[100,15],footL:[82,28]}, props:["bar"] },
+  german_hang:       { pts:{head:[100,94],neck:[100,78],hip:[100,55],handL:[100,15],footL:[100,32]}, props:["bar"] },
+  burpee:            { pts:{head:[76,64],neck:[84,74],hip:[130,72],handL:[78,96],footL:[186,94]}, props:["floor"] },
+  explosive_pushup:  { pts:{head:[62,60],neck:[78,68],hip:[128,66],handL:[68,96],footL:[184,94]}, props:["floor","burst"] },
+  box_jump:          { pts:{head:[72,34],neck:[80,44],hip:[92,58],handL:[58,40],footL:[112,72]}, props:["floor","box"] },
+  broad_jump:        { pts:{head:[122,30],neck:[120,40],hip:[110,54],handL:[150,44],footL:[90,74]}, props:["floor","arrowForward"] },
+  sprint_start:      { pts:{head:[84,58],neck:[90,68],hip:[100,78],handL:[80,94],footL:[120,88],footR:[60,94]}, props:["floor"] },
+  mountain_climbers: { pts:{head:[62,64],neck:[80,72],hip:[126,70],handL:[68,94],footL:[182,92],footR:[140,84]}, props:["floor"] },
+  tuck_jump:         { pts:{head:[90,24],neck:[96,34],hip:[100,54],handL:[80,44],footL:[110,50]}, props:["floor","arrowUp"] },
+  planche_frog:      { pts:{head:[72,72],neck:[86,80],hip:[132,74],handL:[86,96],footL:[118,88]}, props:["floor"] },
+  planche_tuck:      { pts:{head:[72,64],neck:[86,74],hip:[136,70],handL:[86,96],footL:[150,66]}, props:["floor"] },
+  planche_straddle:  { pts:{head:[72,62],neck:[86,72],hip:[138,70],handL:[86,96],footL:[188,72]}, props:["floor"] },
+  planche_full:      { pts:{head:[72,60],neck:[86,70],hip:[140,68],handL:[86,96],footL:[192,70]}, props:["floor"] },
+  front_lever_tuck:      { pts:{head:[92,20],neck:[100,22],hip:[130,24],handL:[100,15],footL:[150,26]}, props:["bar"] },
+  front_lever_advtuck:   { pts:{head:[92,20],neck:[100,22],hip:[140,22],handL:[100,15],footL:[170,24]}, props:["bar"] },
+  front_lever_straddle:  { pts:{head:[92,20],neck:[100,22],hip:[148,22],handL:[100,15],footL:[190,24]}, props:["bar"] },
+  front_lever_full:      { pts:{head:[92,20],neck:[100,22],hip:[148,22],handL:[100,15],footL:[194,22]}, props:["bar"] },
+  back_lever_tuck:       { pts:{head:[92,27],neck:[100,22],hip:[130,24],handL:[100,15],footL:[150,26]}, props:["bar"] },
+  back_lever_straddle:   { pts:{head:[92,27],neck:[100,22],hip:[148,22],handL:[100,15],footL:[190,24]}, props:["bar"] },
+  back_lever_full:       { pts:{head:[92,27],neck:[100,22],hip:[148,22],handL:[100,15],footL:[194,22]}, props:["bar"] },
+  human_flag_tuck:       { pts:{head:[108,30],neck:[100,32],hip:[130,48],handL:[100,30],handR:[100,52],footL:[148,50]}, props:["pole"] },
+  human_flag_straddle:   { pts:{head:[108,30],neck:[100,32],hip:[140,48],handL:[100,30],handR:[100,52],footL:[188,48]}, props:["pole"] },
+  human_flag_full:       { pts:{head:[108,30],neck:[100,32],hip:[142,48],handL:[100,30],handR:[100,52],footL:[194,48]}, props:["pole"] },
+  rotation_pullup:       { pts:{head:[100,24],neck:[100,34],hip:[100,68],handL:[100,15],footL:[100,96]}, props:["bar","arrowRotate"] }
+};
+
+/** Dibuja una plantilla de POSES como SVG (data URI). */
+function figureSvg(tplName, propsOverride){
+  const tpl = POSES[tplName];
+  if(!tpl) return null;
+  const pts = tpl.pts;
+  const props = propsOverride || tpl.props;
+  const parts = [];
+  props.forEach(p => { if(PROP_SVG[p]) parts.push(PROP_SVG[p]); });
+  if(pts.hip && pts.footL) parts.push(figureLimb(pts.hip, pts.footL));
+  if(pts.hip && pts.footR) parts.push(figureLimb(pts.hip, pts.footR));
+  if(pts.neck && pts.hip) parts.push(figureLimb(pts.neck, pts.hip));
+  if(pts.neck && pts.handL) parts.push(figureLimb(pts.neck, pts.handL));
+  if(pts.neck && pts.handR) parts.push(figureLimb(pts.neck, pts.handR));
+  if(pts.head) parts.push(`<circle cx="${pts.head[0]}" cy="${pts.head[1]}" r="9" fill="${MEDIA_ACCENT}"/>`);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120">
+    <rect width="200" height="120" rx="14" fill="${MEDIA_BG}" stroke="${MEDIA_BORDER}" stroke-width="2"/>
+    ${parts.join("")}
+  </svg>`;
+  return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
 }
 
 /**
- * Conecta el manejo de error de una foto real: si la URL externa falla en
- * tiempo de ejecución (enlace roto, bloqueo de red, etc.), sustituye por la
- * tarjeta de "sin foto disponible" en vez de dejar el icono roto del navegador.
+ * Asigna a cada uno de los 86 ejercicios la plantilla de POSES que mejor
+ * representa su patrón de movimiento. Las variantes en anillas reutilizan
+ * la misma plantilla que su equivalente en barra y solo cambian el prop
+ * "bar"/"lowbar" por "rings" (mismo gesto, distinto agarre).
  */
-function attachPhotoErrorHandling(imgEl, ex){
-  if(!imgEl) return;
-  imgEl.addEventListener("error", function onError(){
-    imgEl.removeEventListener("error", onError);
-    imgEl.src = buildNoPhotoCard(ex && ex.name, ex && ex.level);
-    imgEl.classList.add("photo-fallback");
-  });
+const EXERCISE_POSE = {
+  // Empuje
+  emp_flexion_rodillas:{tpl:"plank_pushup"}, emp_flexion_estandar:{tpl:"plank_pushup"},
+  emp_flexion_diamante:{tpl:"plank_pushup"}, emp_pike_pushup:{tpl:"pike"},
+  emp_pike_elevado:{tpl:"pike_elevated"}, emp_hspu_pared:{tpl:"handstand_wall"},
+  emp_hspu_libre:{tpl:"handstand_free"}, emp_fondo_banco:{tpl:"dip_bench"},
+  emp_fondo_paralelas:{tpl:"dip_bars"}, emp_fondo_un_brazo_asistido:{tpl:"dip_bars"},
+  emp_fondo_un_brazo:{tpl:"dip_bars"}, emp_flexion_arquera:{tpl:"archer_pushup"},
+  emp_flexion_un_brazo_asistida:{tpl:"archer_pushup"}, emp_flexion_un_brazo:{tpl:"archer_pushup"},
+  // Tirón
+  tir_remo_invertido_alto:{tpl:"row_high"}, tir_remo_invertido_bajo:{tpl:"row_low"},
+  tir_dominada_negativa:{tpl:"pullup_hang"}, tir_dominada_estricta:{tpl:"pullup_hang"},
+  tir_dominada_arquero:{tpl:"archer_pullup"}, tir_dominada_un_brazo:{tpl:"one_arm_hang"},
+  tir_dominada_supina:{tpl:"pullup_hang"}, tir_dominada_neutra:{tpl:"pullup_hang"},
+  tir_dominada_lastrada:{tpl:"pullup_hang"}, tir_mecanografo:{tpl:"typewriter_pullup"},
+  tir_l_dominada:{tpl:"l_pullup"},
+  // Piernas
+  pie_sentadilla_aire:{tpl:"squat_stand"}, pie_sentadilla_bulgara:{tpl:"squat_split"},
+  pie_pistol_asistida:{tpl:"squat_pistol"}, pie_pistol_libre:{tpl:"squat_pistol"},
+  pie_shrimp_squat:{tpl:"shrimp_squat"}, pie_puente_gluteo:{tpl:"glute_bridge"},
+  pie_puente_una_pierna:{tpl:"glute_bridge_1leg"}, pie_nordic_asistido:{tpl:"nordic_curl"},
+  pie_nordic_curl:{tpl:"nordic_curl"}, pie_zancada:{tpl:"lunge"},
+  pie_zancada_salto:{tpl:"lunge", props:["floor","arrowUp"]},
+  // Core
+  cor_plancha:{tpl:"plank_front"}, cor_hollow_hold:{tpl:"hollow_hold"},
+  cor_elevacion_piernas_barra:{tpl:"hanging_leg_raise"}, cor_toes_to_bar:{tpl:"hanging_raise_hi"},
+  cor_dragon_flag:{tpl:"dragon_flag"}, cor_lsit_tuck:{tpl:"lsit_tuck"},
+  cor_lsit_una_pierna:{tpl:"lsit"}, cor_lsit_completo:{tpl:"lsit"},
+  cor_plancha_lateral:{tpl:"plank_side"}, cor_plancha_lateral_elevada:{tpl:"plank_side"},
+  cor_rollout_rodillas:{tpl:"ab_rollout_knees"}, cor_rollout_de_pie:{tpl:"ab_rollout_stand"},
+  cor_russian_twist:{tpl:"russian_twist"},
+  // Anillas (mismo gesto que su equivalente en barra, con prop "rings")
+  ani_remo_invertido_anillas:{tpl:"row_high", props:["rings","floor"]},
+  ani_dip_apoyo:{tpl:"dip_bars", props:["rings","floor"]},
+  ani_dip_rango_completo:{tpl:"dip_bars", props:["rings","floor"]},
+  ani_muscle_up_banda:{tpl:"muscle_up", props:["rings"]},
+  ani_muscle_up_estricto:{tpl:"muscle_up", props:["rings"]},
+  ani_muscle_up_un_brazo:{tpl:"muscle_up", props:["rings"]},
+  ani_row_pies_elevados:{tpl:"row_high", props:["rings","floor","box"]},
+  ani_ring_pushup:{tpl:"plank_pushup", props:["floor","ringsLow"]},
+  ani_ring_pushup_archer:{tpl:"archer_pushup", props:["floor","ringsLow"]},
+  ani_skin_the_cat:{tpl:"skin_the_cat", props:["rings"]},
+  ani_german_hang:{tpl:"german_hang", props:["rings"]},
+  // Dinámicos
+  din_burpee:{tpl:"burpee"}, din_salto_caja:{tpl:"box_jump"},
+  din_flexion_explosiva:{tpl:"explosive_pushup"}, din_muscle_up_barra:{tpl:"muscle_up"},
+  din_burpee_pull_up:{tpl:"burpee"}, din_salto_muscle_up:{tpl:"muscle_up", props:["bar","arrowUp"]},
+  din_salto_horizontal:{tpl:"broad_jump"}, din_salto_lateral:{tpl:"broad_jump"},
+  din_sprint_arrancada:{tpl:"sprint_start"}, din_mountain_climbers:{tpl:"mountain_climbers"},
+  din_tuck_jump:{tpl:"tuck_jump"},
+  // Freestyle
+  free_planche_frog:{tpl:"planche_frog"}, free_planche_tuck:{tpl:"planche_tuck"},
+  free_planche_full:{tpl:"planche_full"}, free_front_lever_tuck:{tpl:"front_lever_tuck"},
+  free_front_lever_adv:{tpl:"front_lever_advtuck"}, free_front_lever_full:{tpl:"front_lever_full"},
+  free_back_lever_tuck:{tpl:"back_lever_tuck"}, free_back_lever_full:{tpl:"back_lever_full"},
+  free_flag_tuck:{tpl:"human_flag_tuck"}, free_flag_full:{tpl:"human_flag_full"},
+  free_360_pullup:{tpl:"rotation_pullup"}, free_planche_straddle:{tpl:"planche_straddle"},
+  free_front_lever_straddle:{tpl:"front_lever_straddle"}, free_back_lever_straddle:{tpl:"back_lever_straddle"},
+  free_flag_straddle:{tpl:"human_flag_straddle"}
+};
+
+/**
+ * Resuelve la ilustración a usar para un ejercicio.
+ * @returns {{src:string}}
+ */
+function resolveExercisePhoto(ex){
+  const cfg = ex && EXERCISE_POSE[ex.id];
+  const svg = cfg && figureSvg(cfg.tpl, cfg.props);
+  return { src: svg || buildNoPhotoCard(ex && ex.name, ex && ex.level) };
 }
 
 /** Tarjeta plana de respaldo: sin vídeo real disponible. */
@@ -1220,8 +1381,7 @@ function renderPlan(){
     const quickImgWrap = document.createElement("div");
     quickImgWrap.className = "quick-img-wrap";
     const photo = resolveExercisePhoto(ex);
-    quickImgWrap.innerHTML = `<img src="${photo.src}" alt="${photo.isRealPhoto ? "Foto" : "Ilustración"} de ${ex.name}" loading="lazy">`;
-    if(photo.isRealPhoto) attachPhotoErrorHandling(quickImgWrap.querySelector("img"), ex);
+    quickImgWrap.innerHTML = `<img src="${photo.src}" alt="Ilustración de ${ex.name}" loading="lazy">`;
     imgBtn.addEventListener("click", ()=>{
       const open = quickImgWrap.classList.toggle("open");
       imgBtn.classList.toggle("on", open);
@@ -1484,7 +1644,7 @@ function renderLibrary(){
           <span class="toggle-label">Ver detalle</span>
         </button>
         <div class="ex-detail-wrap">
-          <img class="ex-detail-photo" src="${photo.src}" alt="${photo.isRealPhoto ? "Foto" : "Ilustración"} de ${ex.name}" loading="lazy">
+          <img class="ex-detail-photo" src="${photo.src}" alt="Ilustración de ${ex.name}" loading="lazy">
           <div class="ex-video-block">
             ${video.hasVideo
               ? `<div class="ex-video-frame"><video src="${video.src}" controls playsinline preload="metadata"></video></div>`
@@ -1496,7 +1656,6 @@ function renderLibrary(){
       const toggleBtn = card.querySelector(".ex-img-toggle");
       const detailWrap = card.querySelector(".ex-detail-wrap");
       const toggleLabel = card.querySelector(".toggle-label");
-      if(photo.isRealPhoto) attachPhotoErrorHandling(card.querySelector(".ex-detail-photo"), ex);
       toggleBtn.addEventListener("click", ()=>{
         const open = detailWrap.classList.toggle("open");
         toggleLabel.textContent = open ? "Ocultar detalle" : "Ver detalle";
@@ -1771,16 +1930,15 @@ function runUnitTests(){
       }
     }));
   });
-  test("exactamente 36 ejercicios con foto real incrustada (base64) y 50 con tarjeta de respaldo", () => {
-    let withPhoto = 0, withoutPhoto = 0;
-    FAMILIES.forEach(f => DB[f].forEach(e => e.photo ? withPhoto++ : withoutPhoto++));
-    _assertEqual(withPhoto, 36);
-    _assertEqual(withoutPhoto, 50);
-  });
-  test("toda foto real está incrustada (data:) y no depende de ninguna petición de red", () => {
+  test("ningún ejercicio incrusta una foto de terceros (campo `photo` siempre null)", () => {
     FAMILIES.forEach(f => DB[f].forEach(e => {
-      if(e.photo) _assertTrue(e.photo.startsWith("data:image/"), `${e.id}: la foto debería estar incrustada, no enlazada`);
+      _assertTrue(e.photo === null, `${e.id}: no debería llevar una foto incrustada`);
     }));
+  });
+  test("los 86 ejercicios tienen una ilustración propia asignada en EXERCISE_POSE", () => {
+    let mapped = 0;
+    FAMILIES.forEach(f => DB[f].forEach(e => { if(EXERCISE_POSE[e.id]) mapped++; }));
+    _assertEqual(mapped, 86);
   });
   test("findExercise() localiza por id y añade `.family`", () => {
     const ex = findExercise("emp_flexion_estandar");
@@ -1792,15 +1950,14 @@ function runUnitTests(){
       _assertTrue(Array.isArray(chain) && chain.length > 0, `${ex.id}: cadena vacía`);
     }));
   });
-  test("resolveExercisePhoto() da isRealPhoto:true + URL exacta cuando hay foto", () => {
+  test("resolveExercisePhoto() da una ilustración SVG para un ejercicio mapeado", () => {
     const ex = findExercise("emp_flexion_estandar");
     const photo = resolveExercisePhoto(ex);
-    _assertTrue(photo.isRealPhoto === true && photo.src === ex.photo);
+    _assertTrue(photo.src.startsWith("data:image/svg+xml"));
   });
-  test("resolveExercisePhoto() da una tarjeta SVG de respaldo cuando NO hay foto", () => {
-    const ex = findExercise("free_planche_full");
-    const photo = resolveExercisePhoto(ex);
-    _assertTrue(photo.isRealPhoto === false && photo.src.startsWith("data:image/svg+xml"));
+  test("resolveExercisePhoto() da la tarjeta de respaldo si el id no tiene pose mapeada", () => {
+    const photo = resolveExercisePhoto({ id: "no_existe", name: "Ejercicio fantasma", level: "Principiante" });
+    _assertTrue(photo.src.startsWith("data:image/svg+xml"));
   });
   test("los 86 ejercicios resuelven a una imagen válida sin excepción", () => {
     FAMILIES.forEach(fam => DB[fam].forEach(ex => {
