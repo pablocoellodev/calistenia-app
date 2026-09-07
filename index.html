@@ -150,7 +150,7 @@
   .plan-item{border:1px solid var(--line); border-radius:var(--radius-sm); padding:12px; margin-bottom:10px; background:var(--surface-2);}
   .plan-item .plan-head{display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:8px;}
   .plan-item .plan-head .name{font-weight:700; font-size:14.5px;}
-  .plan-item .remove-x{background:none; border:none; color:var(--text-faint); font-size:18px; line-height:1; cursor:pointer; padding:2px 4px;}
+  .remove-x{background:none; border:none; color:var(--text-faint); font-size:18px; line-height:1; cursor:pointer; padding:2px 4px;}
   .set-row{display:flex; align-items:center; gap:8px; padding:6px 0; border-top:1px dashed var(--line);}
   .set-row:first-of-type{border-top:none;}
   .set-row .set-idx{width:20px; color:var(--text-faint); font-size:12px; font-weight:700;}
@@ -330,6 +330,14 @@
 
   <!-- ===================== DASHBOARD ===================== -->
   <section class="view active" id="view-dashboard">
+    <div class="card" id="levelOnboardingCard" style="display:none;">
+      <div class="card-title">
+        ¿Cuál es tu nivel de partida?
+        <button type="button" class="remove-x" id="btnDismissLevelBanner" title="Cerrar, puedes elegirlo luego desde 'Nivel' arriba">×</button>
+      </div>
+      <p class="muted" style="font-size:13px; margin:0 0 10px;">Se usa como punto de arranque en las familias donde aún no tengas historial guardado, para no mandarte siempre a Principiante. Podrás cambiarlo cuando quieras desde la pastilla "Nivel" de arriba.</p>
+      <div class="chip-row" id="levelOnboardingChips"></div>
+    </div>
     <button class="btn btn-block btn-reco" id="btnGenerateWorkout">⚡ Generar Entreno Recomendado</button>
     <div class="card family-picker" id="familyPickerPanel" style="display:none;">
       <div class="card-title">¿Qué quieres trabajar hoy?</div>
@@ -940,7 +948,8 @@ const STORE_KEYS = {
   notes: "cal_today_notes",
   sessions: "cal_sessions",
   muscleup: "cal_muscleup_logs",
-  userLevel: "cal_user_level"
+  userLevel: "cal_user_level",
+  levelBannerDismissed: "cal_level_banner_dismissed"
 };
 
 function loadJSON(key, fallback){
@@ -963,13 +972,16 @@ const AppState = {
   muscleLogs: loadJSON(STORE_KEYS.muscleup, []),
   sessionNotes: loadJSON(STORE_KEYS.notes, ""),
   // null = todavía no se ha respondido la pregunta de nivel de partida (dispara el onboarding)
-  userLevel: loadJSON(STORE_KEYS.userLevel, null)
+  userLevel: loadJSON(STORE_KEYS.userLevel, null),
+  // true = el usuario cerró la tarjeta de onboarding de nivel sin elegir uno; no se le vuelve a insistir
+  levelBannerDismissed: loadJSON(STORE_KEYS.levelBannerDismissed, false)
 };
 
 function persistPlan(){ saveJSON(STORE_KEYS.plan, AppState.todayPlan); }
 function persistSessions(){ saveJSON(STORE_KEYS.sessions, AppState.sessions); }
 function persistMuscleLogs(){ saveJSON(STORE_KEYS.muscleup, AppState.muscleLogs); }
 function persistNotes(){ saveJSON(STORE_KEYS.notes, AppState.sessionNotes); }
+function persistLevelBannerDismissed(){ saveJSON(STORE_KEYS.levelBannerDismissed, AppState.levelBannerDismissed); }
 function persistUserLevel(){ saveJSON(STORE_KEYS.userLevel, AppState.userLevel); }
 
 /**
@@ -1486,9 +1498,13 @@ function runRecommendedWorkoutFor(choice){
 
 /**
  * onboarding.js — Selección de nivel de partida (Level Onboarding Controller)
- * Se muestra automáticamente la primera vez que se usa la app (userLevel es
- * null) y queda accesible después desde la pastilla "Nivel: X" del header,
- * por si el usuario quiere corregirlo a mano.
+ * La primera vez que se usa la app (userLevel es null) se ofrece una tarjeta
+ * discreta y descartable arriba del dashboard, en vez de un modal a pantalla
+ * completa que bloquea la app nada más abrirla. Si el usuario la cierra sin
+ * elegir nivel, no se le vuelve a insistir (levelBannerDismissed) — siempre
+ * puede elegirlo más adelante desde la pastilla "Nivel: X" del header, que
+ * abre el mismo selector como modal (ahí sí tiene sentido, porque el usuario
+ * lo pidió explícitamente).
  */
 function renderUserLevelBadge(){
   const btn = document.getElementById("btnUserLevel");
@@ -1496,32 +1512,54 @@ function renderUserLevelBadge(){
   btn.textContent = `Nivel: ${AppState.userLevel || "—"}`;
 }
 
-function openLevelModal(){
-  const modal = document.getElementById("levelModal");
-  const chipsBox = document.getElementById("levelModalChips");
-  chipsBox.innerHTML = "";
+function buildLevelChips(container, onPick){
+  container.innerHTML = "";
   LEVELS.forEach(level=>{
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "chip" + (AppState.userLevel===level ? " chip-active" : "");
     chip.textContent = level;
-    chip.addEventListener("click", ()=>{
-      AppState.userLevel = level;
-      persistUserLevel();
-      renderUserLevelBadge();
-      modal.style.display = "none";
-    });
-    chipsBox.appendChild(chip);
+    chip.addEventListener("click", ()=> onPick(level));
+    container.appendChild(chip);
+  });
+}
+
+function pickUserLevel(level){
+  AppState.userLevel = level;
+  persistUserLevel();
+  renderUserLevelBadge();
+  renderLevelOnboardingBanner();
+}
+
+function openLevelModal(){
+  const modal = document.getElementById("levelModal");
+  buildLevelChips(document.getElementById("levelModalChips"), (level)=>{
+    pickUserLevel(level);
+    modal.style.display = "none";
   });
   modal.style.display = "flex";
 }
 
+/** Muestra/oculta la tarjeta de onboarding del dashboard según el estado actual. */
+function renderLevelOnboardingBanner(){
+  const card = document.getElementById("levelOnboardingCard");
+  if(!card) return;
+  const shouldShow = !AppState.userLevel && !AppState.levelBannerDismissed;
+  card.style.display = shouldShow ? "block" : "none";
+  if(shouldShow){
+    buildLevelChips(document.getElementById("levelOnboardingChips"), pickUserLevel);
+  }
+}
+
 function initLevelOnboarding(){
   document.getElementById("btnUserLevel").addEventListener("click", openLevelModal);
+  document.getElementById("btnDismissLevelBanner").addEventListener("click", ()=>{
+    AppState.levelBannerDismissed = true;
+    persistLevelBannerDismissed();
+    renderLevelOnboardingBanner();
+  });
   renderUserLevelBadge();
-  if(!AppState.userLevel){
-    openLevelModal(); // primera vez: se abre solo, sin esperar a que el usuario la busque
-  }
+  renderLevelOnboardingBanner();
 }
 
 /** Modal con el informe que genera buildSessionReport() al guardar una sesión. */
