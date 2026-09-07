@@ -1202,6 +1202,23 @@ function pickSmartFamilyCombo(sessions){
 }
 
 /**
+ * Cuando el usuario elige UNA sola familia para hoy, busca en FAMILY_PAIRS
+ * con cuál se combina bien (empuje con core o tirón, piernas con freestyle,
+ * etc. — los mismos pares ya definidos para "cuerpo completo") y devuelve la
+ * más descansada de las candidatas, para que ninguna sesión sea solo
+ * empuje o solo tirón sin nada que la equilibre. Devuelve null si `family`
+ * no aparece en ningún par (no debería pasar con las 7 familias actuales).
+ */
+function pickComplementaryFamily(family, sessions){
+  const candidates = FAMILY_PAIRS.filter(p => p.includes(family)).map(p => p[0]===family ? p[1] : p[0]);
+  if(candidates.length === 0) return null;
+  const scored = candidates.map(f => ({ f, rest: familyRecencyScore(f, sessions) }));
+  const mostRest = Math.max(...scored.map(s => s.rest));
+  const top = scored.filter(s => s.rest === mostRest);
+  return top[sessions.length % top.length].f;
+}
+
+/**
  * Devuelve el ejercicio de `family` en el nivel exacto `userLevel`, o si esa
  * familia no tiene ningún ejercicio en ese nivel, el del nivel más cercano
  * HACIA ABAJO disponible (nunca hacia arriba). Sustituye el antiguo
@@ -1269,7 +1286,7 @@ function computeLevelUpProgress(sessions, currentLevel){
 }
 
 const REST_SECONDS = 75;
-const WARMUP_MINUTES = 8;
+const WARMUP_MINUTES = 10;
 
 function repRangeForLevel(level, isHold){
   const TABLE = isHold
@@ -1404,19 +1421,40 @@ function estimateMinutes(planItems){
  * @returns {{dayLabel:string, planItems:Array, summaryLines:Array<string>, estimatedMinutes:number}}
  */
 function buildRecommendedPlan(sessions, families, userLevel="Principiante"){
-  const dayLabel = families.length > 1 ? families.join(" + ") : families[0];
+  // Si el usuario eligió una sola familia, se le añade automáticamente la
+  // pareja con la que mejor combina (empuje con core o tirón, piernas con
+  // freestyle...) usando los mismos FAMILY_PAIRS de "cuerpo completo", para
+  // que ninguna sesión trabaje un solo patrón de movimiento y para que dure
+  // lo que debe durar un entreno completo en vez de quedarse corta.
+  let effectiveFamilies = families;
+  let complementFamily = null;
+  if(families.length === 1){
+    complementFamily = pickComplementaryFamily(families[0], sessions);
+    if(complementFamily) effectiveFamilies = [families[0], complementFamily];
+  }
+  const dayLabel = effectiveFamilies.length > 1 ? effectiveFamilies.join(" + ") : effectiveFamilies[0];
 
   const planItems = [];
-  const summaryLines = [`<em>Calentamiento sugerido: 5-8 min de movilidad de hombro, cadera y muñeca antes de empezar.</em>`];
+  const summaryLines = [`<em>Calentamiento sugerido: 8-10 min de movilidad de hombro, cadera y muñeca antes de empezar.</em>`];
+  if(complementFamily){
+    summaryLines.push(`<em>Se añade ${complementFamily} para no entrenar un solo patrón de movimiento — un entreno equilibrado combina empujes con tirones o core, no uno solo.</em>`);
+  }
 
-  families.forEach(fam=>{
+  // Si Freestyle ya está entre las familias de hoy, más abajo no se añade el
+  // bonus aparte — para que esa sesión no se quede corta frente a las demás,
+  // la última familia del bucle gana un accesorio extra que compense el hueco.
+  const skipsFreestyleBonus = effectiveFamilies.includes("Freestyle");
+
+  effectiveFamilies.forEach((fam, famIdx)=>{
     const {exercise: mainEx, reason, sets: setsOverride} = pickExerciseForFamily(fam, sessions, userLevel);
     const mainSets = setsOverride || 4;
     const mainRange = repRangeForLevel(mainEx.level, !!mainEx.hold);
     planItems.push({ exId: mainEx.id, sets: makeSets(mainSets, mainRange.mid) });
-    summaryLines.push(`<strong>${fam} · principal:</strong> ${mainEx.name} (${mainEx.level}) — ${mainSets} × ${mainRange.label}. ${reason}`);
+    const roleLabel = fam === complementFamily ? "complemento" : "principal";
+    summaryLines.push(`<strong>${fam} · ${roleLabel}:</strong> ${mainEx.name} (${mainEx.level}) — ${mainSets} × ${mainRange.label}. ${reason}`);
 
-    const accessories = pickAccessoriesForFamily(fam, mainEx.id, 3, sessions);
+    const accessoryCount = (skipsFreestyleBonus && famIdx === effectiveFamilies.length-1) ? 4 : 3;
+    const accessories = pickAccessoriesForFamily(fam, mainEx.id, accessoryCount, sessions);
     accessories.forEach(acc=>{
       const accRange = repRangeForLevel(acc.level, !!acc.hold);
       planItems.push({ exId: acc.id, sets: makeSets(3, accRange.mid) });
@@ -1425,11 +1463,11 @@ function buildRecommendedPlan(sessions, families, userLevel="Principiante"){
   });
 
   // Bonus de Freestyle solo si el usuario no eligió ya esa familia (para no duplicar).
-  if(DB["Freestyle"] && DB["Freestyle"].length && !families.includes("Freestyle")){
+  if(DB["Freestyle"] && DB["Freestyle"].length && !skipsFreestyleBonus){
     const {exercise: freeEx, reason: freeReason} = pickExerciseForFamily("Freestyle", sessions, userLevel);
     const freeRange = repRangeForLevel(freeEx.level, !!freeEx.hold);
-    planItems.push({ exId: freeEx.id, sets: makeSets(2, freeRange.mid) });
-    summaryLines.push(`<strong>Freestyle · extra:</strong> ${freeEx.name} (${freeEx.level}) — 2 × ${freeRange.label}. ${freeReason}`);
+    planItems.push({ exId: freeEx.id, sets: makeSets(3, freeRange.mid) });
+    summaryLines.push(`<strong>Freestyle · extra:</strong> ${freeEx.name} (${freeEx.level}) — 3 × ${freeRange.label}. ${freeReason}`);
   }
 
   const estimatedMinutes = estimateMinutes(planItems);
@@ -2408,24 +2446,39 @@ function runUnitTests(){
     _assertEqual(plan.planItems.length, 9);
     plan.planItems.forEach(item => _assertTrue(!!findExercise(item.exId)));
   });
-  test("buildRecommendedPlan() con UNA sola familia elegida genera 4 ejercicios + 1 bonus Freestyle", () => {
+  test("buildRecommendedPlan() con UNA sola familia elegida añade automáticamente su pareja complementaria", () => {
     const plan = buildRecommendedPlan([], ["Core"]);
-    _assertEqual(plan.planItems.length, 5); // 1 principal + 3 accesorios + 1 Freestyle
-    _assertEqual(plan.dayLabel, "Core");
+    _assertEqual(plan.planItems.length, 9); // 2 familias (elegida + complemento) x 4 + 1 Freestyle
+    _assertTrue(plan.dayLabel.startsWith("Core"), `dayLabel debería empezar por "Core": ${plan.dayLabel}`);
+    _assertTrue(plan.dayLabel.includes("+"), "debería reflejar la familia complementaria en el nombre del día");
   });
-  test("buildRecommendedPlan() NO duplica el bonus Freestyle si el usuario ya eligió Freestyle", () => {
+  test("buildRecommendedPlan() NO duplica el bonus Freestyle si el usuario ya eligió Freestyle (ni como complemento)", () => {
     const plan = buildRecommendedPlan([], ["Freestyle"]);
-    _assertEqual(plan.planItems.length, 4); // 1 principal + 3 accesorios, sin bonus repetido
+    _assertEqual(plan.planItems.length, 9); // 2 familias (Freestyle + complemento): 4 + 5 (un accesorio extra compensa el bonus que no se añade)
+    _assertTrue(plan.dayLabel.startsWith("Freestyle"));
   });
   test("buildRecommendedPlan() ya NO decide la familia por sesiones — la elige quien llama", () => {
     const planA = buildRecommendedPlan([], ["Piernas"]);
     const planB = buildRecommendedPlan([{exercises:[]},{exercises:[]},{exercises:[]}], ["Piernas"]);
-    _assertEqual(planA.dayLabel, "Piernas");
-    _assertEqual(planB.dayLabel, "Piernas");
+    _assertTrue(planA.dayLabel.startsWith("Piernas"));
+    _assertTrue(planB.dayLabel.startsWith("Piernas"));
   });
-  test("buildRecommendedPlan() estima una duración realista para 'cuerpo completo' (30-90 min)", () => {
-    const plan = buildRecommendedPlan([], pickSmartFamilyCombo([]).families);
-    _assertTrue(plan.estimatedMinutes >= 30 && plan.estimatedMinutes <= 90, `fuera de rango: ${plan.estimatedMinutes}`);
+  test("buildRecommendedPlan() dura al menos una hora, elijas la combinación que elijas", () => {
+    FAMILIES.forEach(fam => {
+      const plan = buildRecommendedPlan([], [fam]);
+      _assertTrue(plan.estimatedMinutes >= 60, `${fam}: solo ${plan.estimatedMinutes} min, por debajo de la hora mínima`);
+    });
+    FAMILY_PAIRS.forEach(pair => {
+      const plan = buildRecommendedPlan([], pair);
+      _assertTrue(plan.estimatedMinutes >= 60, `${pair.join("+")}: solo ${plan.estimatedMinutes} min, por debajo de la hora mínima`);
+    });
+  });
+  test("buildRecommendedPlan() combina familias que se complementan (empuje con core o tirón, etc.), nunca deja una familia sola", () => {
+    FAMILIES.forEach(fam => {
+      const plan = buildRecommendedPlan([], [fam]);
+      const isValidCombo = FAMILY_PAIRS.some(p => p.includes(fam) && p.every(f => plan.dayLabel.includes(f)));
+      _assertTrue(isValidCombo, `${fam}: "${plan.dayLabel}" no es una combinación de FAMILY_PAIRS válida`);
+    });
   });
   test("buildRecommendedPlan() es puro: no muta el historial recibido", () => {
     const sessions = [{exercises:[{name:"Plancha frontal", family:"Core", sets:[{reps:20,done:true,rpe:5}]}]}];
