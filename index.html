@@ -60,7 +60,11 @@
   /* ---------- App shell ---------- */
   header.topbar{
     position:sticky; top:0; z-index:20;
-    background:linear-gradient(180deg, var(--bg) 70%, rgba(14,16,19,0));
+    /* Sólido, no degradado a transparente: al hacer scroll en móvil, un
+       header "sticky" con fondo que se desvanece deja ver el contenido que
+       pasa por debajo justo donde vive la fecha, dando un efecto de texto
+       superpuesto. Con fondo sólido tapa correctamente lo que hay detrás. */
+    background:var(--bg);
     padding:20px 18px 10px;
   }
   header.topbar .app-brand{color:var(--text-faint); font-size:11px; font-weight:700; letter-spacing:.6px; text-transform:uppercase;}
