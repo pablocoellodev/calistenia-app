@@ -287,6 +287,13 @@
   .icon-btn.danger:active{color:var(--bad); border-color:var(--bad);}
 
   .plan-desc{color:var(--text-dim); font-size:12.5px; margin-top:4px;}
+  .rank-hero{display:flex; flex-direction:column; align-items:center; text-align:center; padding:28px 20px 24px;}
+  .rank-hero-label{color:var(--text-faint); font-size:12px; font-weight:700; letter-spacing:.8px; text-transform:uppercase;}
+  .rank-hero-badge{margin:16px 0 14px; line-height:0;}
+  .rank-hero-name{font-family:var(--ff-display); font-size:26px; font-weight:800; letter-spacing:.3px;}
+  .rank-hero-stats{color:var(--text-dim); font-size:13.5px; margin-top:10px;}
+  .rank-hero-next{color:var(--text-dim); font-size:13px; margin-top:6px;}
+  .rank-hero-next strong{color:var(--accent-2);}
   .achievement-card{display:flex; gap:12px; align-items:flex-start; padding:12px 14px;}
   .achievement-card.locked{opacity:.45;}
   .achievement-icon{font-size:22px; line-height:1; flex-shrink:0;}
@@ -1753,31 +1760,123 @@ function computeMasteryMaxScore(){
  * catálogo, Élite incluido — igual que en un ranked real, donde los últimos
  * tramos son mucho más largos que los primeros.
  */
+// `colors: [oscuro, claro]` alimenta el degradado del emblema de cada rango
+// (ver rankBadgeSvg) — un tono por rango basado en el material/gema real que
+// nombra ("hierro" gris, "oro" amarillo...), no en el diseño de ningún juego
+// concreto; el propio dibujo del emblema (rankIconInnerSvg) es original.
 const RANK_TIERS = [
-  {name:"Hierro", min:0},
-  {name:"Bronce", min:0.03},
-  {name:"Plata", min:0.07},
-  {name:"Oro", min:0.13},
-  {name:"Platino", min:0.20},
-  {name:"Esmeralda", min:0.28},
-  {name:"Diamante", min:0.38},
-  {name:"Maestro", min:0.50},
-  {name:"Gran Maestro", min:0.65},
-  {name:"Retador", min:0.80}
+  {name:"Hierro", min:0, colors:["#4b5563","#9ca3af"]},
+  {name:"Bronce", min:0.03, colors:["#7c3f18","#c2793d"]},
+  {name:"Plata", min:0.07, colors:["#64748b","#cbd5e1"]},
+  {name:"Oro", min:0.13, colors:["#92610a","#fbbf24"]},
+  {name:"Platino", min:0.20, colors:["#0f766e","#5eead4"]},
+  {name:"Esmeralda", min:0.28, colors:["#065f46","#34d399"]},
+  {name:"Diamante", min:0.38, colors:["#1e3a8a","#60a5fa"]},
+  {name:"Maestro", min:0.50, colors:["#5b21b6","#a78bfa"]},
+  {name:"Gran Maestro", min:0.65, colors:["#831843","#fb7185"]},
+  {name:"Retador", min:0.80, colors:["#92400e","#fde047"]}
 ];
 
-/** Rango actual a partir del historial, más el nombre del siguiente rango (o null si ya es el máximo). Puro. */
+/** Rango actual a partir del historial (con su índice en RANK_TIERS, para poder dibujar su emblema), más el nombre del siguiente rango (o null si ya es el máximo). Puro. */
 function computeRank(sessions){
   const score = computeMasteryScore(sessions);
   const max = computeMasteryMaxScore();
   const ratio = max > 0 ? score / max : 0;
-  let current = RANK_TIERS[0];
+  let current = RANK_TIERS[0], currentIndex = 0;
   let next = null;
   for(let i=0; i<RANK_TIERS.length; i++){
-    if(ratio >= RANK_TIERS[i].min) current = RANK_TIERS[i];
+    if(ratio >= RANK_TIERS[i].min){ current = RANK_TIERS[i]; currentIndex = i; }
     else { next = RANK_TIERS[i]; break; }
   }
-  return { name: current.name, score, max, ratio, next: next ? next.name : null };
+  return { name: current.name, index: currentIndex, score, max, ratio, next: next ? next.name : null };
+}
+
+/**
+ * Emblema de rango: dibujo SVG propio (no descargado, no calcado de ningún
+ * juego) que evoluciona con el rango — de un simple círculo en Hierro a un
+ * estallido radiante en Retador. Mismo marco hexagonal para los diez, para
+ * que se sienta una familia coherente de insignias, con el interior y el
+ * degradado de color cambiando en cada una. Puro: solo construye un string
+ * SVG, no toca el DOM.
+ */
+function polygonPoints(cx, cy, r, sides, rotationDeg){
+  const rot = rotationDeg === undefined ? -90 : rotationDeg;
+  const pts = [];
+  for(let i=0; i<sides; i++){
+    const angle = (Math.PI/180) * (rot + (360/sides)*i);
+    pts.push(`${(cx + r*Math.cos(angle)).toFixed(1)},${(cy + r*Math.sin(angle)).toFixed(1)}`);
+  }
+  return pts.join(" ");
+}
+
+function starPoints(cx, cy, outerR, innerR, points, rotationDeg){
+  const rot = rotationDeg === undefined ? -90 : rotationDeg;
+  const pts = [];
+  const step = 360/(points*2);
+  for(let i=0; i<points*2; i++){
+    const r = i%2===0 ? outerR : innerR;
+    const angle = (Math.PI/180) * (rot + step*i);
+    pts.push(`${(cx + r*Math.cos(angle)).toFixed(1)},${(cy + r*Math.sin(angle)).toFixed(1)}`);
+  }
+  return pts.join(" ");
+}
+
+function burstRaysSvg(cx, cy, innerR, outerR, count, color){
+  let out = "";
+  for(let i=0; i<count; i++){
+    const angle = (Math.PI/180) * ((360/count)*i);
+    const x1 = cx + innerR*Math.cos(angle), y1 = cy + innerR*Math.sin(angle);
+    const x2 = cx + outerR*Math.cos(angle), y2 = cy + outerR*Math.sin(angle);
+    out += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${color}" stroke-width="4" stroke-linecap="round"/>`;
+  }
+  return out;
+}
+
+/** Icono interior del emblema, distinto para cada uno de los 10 rangos (ver RANK_TIERS). */
+function rankIconInnerSvg(tierIndex, accent){
+  const cx = 100, cy = 100;
+  switch(tierIndex){
+    case 0: // Hierro: círculo simple, sin adornos — el punto de partida.
+      return `<circle cx="${cx}" cy="${cy}" r="26" fill="none" stroke="${accent}" stroke-width="6"/>`;
+    case 1: // Bronce: triángulo ascendente.
+      return `<polygon points="${polygonPoints(cx,cy,30,3)}" fill="none" stroke="${accent}" stroke-width="6" stroke-linejoin="round"/>`;
+    case 2: // Plata: rombo.
+      return `<polygon points="${polygonPoints(cx,cy,32,4)}" fill="none" stroke="${accent}" stroke-width="6" stroke-linejoin="round"/>`;
+    case 3: // Oro: estrella de 5 puntas en contorno.
+      return `<polygon points="${starPoints(cx,cy,34,15,5)}" fill="none" stroke="${accent}" stroke-width="5.5" stroke-linejoin="round"/>`;
+    case 4: // Platino: dos hexágonos concéntricos.
+      return `<polygon points="${polygonPoints(cx,cy,32,6)}" fill="none" stroke="${accent}" stroke-width="5"/><polygon points="${polygonPoints(cx,cy,19,6)}" fill="none" stroke="${accent}" stroke-width="3" opacity=".7"/>`;
+    case 5: // Esmeralda: gema hexagonal facetada, ya rellena.
+      return `<polygon points="${polygonPoints(cx,cy,32,6)}" fill="${accent}" opacity=".9"/><polygon points="${polygonPoints(cx,cy,32,6)}" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2"/><line x1="${cx}" y1="${cy-32}" x2="${cx}" y2="${cy+32}" stroke="rgba(255,255,255,.4)" stroke-width="1.5"/>`;
+    case 6: // Diamante: gema en rombo con brillo interior en cruz.
+      return `<polygon points="${polygonPoints(cx,cy,36,4)}" fill="${accent}"/><polygon points="${cx-16},${cy} ${cx},${cy-34} ${cx+16},${cy} ${cx},${cy+34}" fill="none" stroke="rgba(255,255,255,.65)" stroke-width="2"/>`;
+    case 7: // Maestro: estrella de 5 puntas rellena con halo.
+      return `<circle cx="${cx}" cy="${cy}" r="40" fill="none" stroke="${accent}" stroke-width="2" opacity=".45"/><polygon points="${starPoints(cx,cy,32,14,5)}" fill="${accent}"/>`;
+    case 8: // Gran Maestro: estrella de 6 puntas rellena — un peldaño más que Maestro.
+      return `<polygon points="${starPoints(cx,cy,34,15,6)}" fill="${accent}"/>`;
+    default: // Retador: estallido radiante con núcleo — el máximo, inconfundible.
+      return `${burstRaysSvg(cx,cy,26,48,12,accent)}<circle cx="${cx}" cy="${cy}" r="20" fill="${accent}"/>`;
+  }
+}
+
+/** Emblema completo (marco hexagonal + icono interior) de un rango, como string SVG listo para insertar en el DOM. */
+function rankBadgeSvg(tierIndex, size){
+  const tier = RANK_TIERS[tierIndex] || RANK_TIERS[0];
+  const [dark, light] = tier.colors;
+  const gradId = `rankGrad${tierIndex}`;
+  return `
+    <svg viewBox="0 0 200 200" width="${size}" height="${size}" role="img" aria-label="Emblema de rango ${tier.name}">
+      <defs>
+        <linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="${dark}"/>
+          <stop offset="100%" stop-color="${light}"/>
+        </linearGradient>
+      </defs>
+      <polygon points="${polygonPoints(100,100,94,6)}" fill="url(#${gradId})" stroke="rgba(255,255,255,.3)" stroke-width="3"/>
+      <polygon points="${polygonPoints(100,100,78,6)}" fill="rgba(8,12,24,.4)"/>
+      ${rankIconInnerSvg(tierIndex, light)}
+    </svg>
+  `;
 }
 
 /**
@@ -1811,7 +1910,23 @@ const ACHIEVEMENTS = [
   { id:"rank_oro", name:"Rango Oro", desc:"Alcanza el rango Oro.", rarity:"Poco común", difficulty:0.13, check:(s)=> computeRank(s).ratio >= 0.13 },
   { id:"rank_diamante", name:"Rango Diamante", desc:"Alcanza el rango Diamante.", rarity:"Épico", difficulty:0.03, check:(s)=> computeRank(s).ratio >= 0.38 },
   { id:"rank_challenger", name:"Retador", desc:"Alcanza el rango máximo: prácticamente todo el catálogo dominado.", rarity:"Legendario", difficulty:0.001, check:(s)=> computeRank(s).ratio >= 0.80 },
-  { id:"muscleup_clean", name:"Primer muscle-up limpio", desc:"Registra un muscle-up con ejecución limpia en el apartado Muscle-Up.", rarity:"Raro", difficulty:0.08, check:(s, m)=> (m||[]).some(entry => entry.quality === "Limpio") }
+  { id:"muscleup_clean", name:"Primer muscle-up limpio", desc:"Registra un muscle-up con ejecución limpia en el apartado Muscle-Up.", rarity:"Raro", difficulty:0.08, check:(s, m)=> (m||[]).some(entry => entry.quality === "Limpio") },
+  { id:"streak_14", name:"Dos semanas de fuego", desc:"Entrena 14 días seguidos.", rarity:"Raro", difficulty:0.08, check:(s)=> computeStreak(s) >= 14 },
+  { id:"streak_100", name:"Leyenda de la constancia", desc:"Entrena 100 días seguidos.", rarity:"Legendario", difficulty:0.005, check:(s)=> computeStreak(s) >= 100 },
+  { id:"sessions_250", name:"Imparable", desc:"Guarda 250 sesiones.", rarity:"Legendario", difficulty:0.01, check:(s)=> s.length >= 250 },
+  { id:"mastered_10", name:"Colección creciente", desc:"Domina 10 ejercicios distintos alguna vez.", rarity:"Poco común", difficulty:0.22, check:(s)=> getMasteredExerciseSet(s).size >= 10 },
+  { id:"mastered_25", name:"Amplio dominio", desc:"Domina 25 ejercicios distintos alguna vez.", rarity:"Raro", difficulty:0.09, check:(s)=> getMasteredExerciseSet(s).size >= 25 },
+  { id:"mastered_50", name:"Enciclopedia viva", desc:"Domina 50 ejercicios distintos alguna vez.", rarity:"Épico", difficulty:0.025, check:(s)=> getMasteredExerciseSet(s).size >= 50 },
+  { id:"rank_maestro", name:"Rango Maestro", desc:"Alcanza el rango Maestro.", rarity:"Épico", difficulty:0.02, check:(s)=> computeRank(s).ratio >= 0.50 },
+  { id:"session_low_rpe", name:"Sesión de sobra", desc:"Completa una sesión entera (todas las series) con RPE medio de 5 o menos.", rarity:"Poco común", difficulty:0.20, check:(s)=> s.some(session => {
+    const sets = (session.exercises||[]).flatMap(e => e.sets||[]);
+    if(sets.length === 0 || !sets.every(st => st.done)) return false;
+    const rpes = sets.map(st => st.rpe).filter(r => r !== null && r !== undefined);
+    if(rpes.length === 0) return false;
+    return (rpes.reduce((a,b)=>a+b,0)/rpes.length) <= 5;
+  }) },
+  { id:"notes_used", name:"Diario de entreno", desc:"Escribe notas en alguna sesión guardada.", rarity:"Común", difficulty:0.50, check:(s)=> s.some(session => !!(session.notes && session.notes.trim().length > 0)) },
+  { id:"muscleup_10_logs", name:"Práctica constante de Muscle-Up", desc:"Guarda 10 registros en el apartado Muscle-Up.", rarity:"Común", difficulty:0.30, check:(s, m)=> (m||[]).length >= 10 }
 ];
 
 /** Devuelve ACHIEVEMENTS con un booleano `unlocked` por cada uno, a partir del historial actual. Puro. */
@@ -2348,10 +2463,14 @@ function renderAchievements(){
 
   const rank = computeRank(AppState.sessions);
   const pct = Math.round(rank.ratio * 100);
+  const glowColor = RANK_TIERS[rank.index].colors[1];
+  rankCard.className = "card rank-hero";
   rankCard.innerHTML = `
-    <div class="card-title">🏆 Rango actual: ${rank.name}</div>
-    <div class="report-line"><strong>${pct}%</strong> del catálogo dominado (${rank.score} de ${rank.max} puntos posibles).</div>
-    ${rank.next ? `<div class="report-line">Siguiente rango: <strong>${rank.next}</strong>.</div>` : `<div class="report-line"><strong>¡Rango máximo alcanzado!</strong></div>`}
+    <div class="rank-hero-label">Rango actual</div>
+    <div class="rank-hero-badge" style="filter:drop-shadow(0 0 22px ${glowColor}66);">${rankBadgeSvg(rank.index, 168)}</div>
+    <div class="rank-hero-name">${rank.name}</div>
+    <div class="rank-hero-stats"><strong>${pct}%</strong> del catálogo dominado (${rank.score} de ${rank.max} puntos posibles)</div>
+    ${rank.next ? `<div class="rank-hero-next">Siguiente rango: <strong>${rank.next}</strong></div>` : `<div class="rank-hero-next">🌟 ¡Rango máximo alcanzado!</div>`}
   `;
 
   const achievements = computeAchievements(AppState.sessions, AppState.muscleLogs);
@@ -3767,6 +3886,41 @@ function runUnitTests(){
       _assertTrue(getComputedStyle(howtoEl.closest(".plan-item")).display !== "none");
       _assertTrue(!howtoEl.closest(".quick-img-wrap"), "no debe estar escondido dentro del toggle de la foto");
     });
+  });
+  _groupEnd();
+
+  _groupCollapsed("8) Emblemas de rango y más logros");
+  test("rankBadgeSvg() da un SVG distinto y válido para cada uno de los 10 rangos", () => {
+    const svgs = RANK_TIERS.map((_, i) => rankBadgeSvg(i, 100));
+    svgs.forEach((svg, i) => {
+      _assertTrue(svg.includes("<svg"), `rango ${i}: no parece un SVG`);
+      _assertTrue(svg.includes(RANK_TIERS[i].colors[0]) && svg.includes(RANK_TIERS[i].colors[1]), `rango ${i}: no usa los colores de su propio tier`);
+    });
+    _assertEqual(new Set(svgs).size, svgs.length, "cada rango debería tener un dibujo distinto");
+  });
+  test("computeRank() devuelve el índice correcto para pintar su propio emblema", () => {
+    _assertEqual(computeRank([]).index, 0); // Hierro
+    const allExercises = [];
+    FAMILIES.forEach(f => DB[f].forEach(ex => allExercises.push({name:ex.name, family:f, sets:[{reps:5, done:true, rpe:5}]})));
+    _assertEqual(computeRank([{exercises: allExercises}]).index, RANK_TIERS.length - 1); // Retador
+  });
+  test("polygonPoints()/starPoints() generan el número de vértices esperado", () => {
+    _assertEqual(polygonPoints(0,0,10,6).split(" ").length, 6);
+    _assertEqual(starPoints(0,0,10,5,5).split(" ").length, 10);
+  });
+  test("ACHIEVEMENTS creció con la ampliación y sigue sin ids duplicados", () => {
+    _assertTrue(ACHIEVEMENTS.length >= 30, `se esperaban al menos 30 logros, hay ${ACHIEVEMENTS.length}`);
+    _assertEqual(new Set(ACHIEVEMENTS.map(a=>a.id)).size, ACHIEVEMENTS.length);
+  });
+  test("nuevos logros de dominio y de sesión con RPE bajo se desbloquean correctamente", () => {
+    const tenMastered = FAMILIES[0] && DB["Empuje"].slice(0,10).map(ex => ({name:ex.name, family:"Empuje", sets:[{reps:5,done:true,rpe:5}]}));
+    const withTen = computeAchievements([{exercises: tenMastered}], []);
+    _assertTrue(withTen.find(a=>a.id==="mastered_10").unlocked === true);
+    _assertTrue(withTen.find(a=>a.id==="mastered_25").unlocked === false);
+
+    const lowRpeSession = [{exercises:[{name:"Flexiones estándar", family:"Empuje", sets:[{reps:12,done:true,rpe:4},{reps:12,done:true,rpe:5}]}]}];
+    _assertTrue(computeAchievements(lowRpeSession, []).find(a=>a.id==="session_low_rpe").unlocked === true);
+    _assertTrue(computeAchievements([{exercises:[{name:"x",family:"Empuje",sets:[{reps:1,done:false,rpe:null}]}]}], []).find(a=>a.id==="session_low_rpe").unlocked === false);
   });
   _groupEnd();
 
