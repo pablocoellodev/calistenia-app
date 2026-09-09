@@ -287,6 +287,12 @@
   .icon-btn.danger:active{color:var(--bad); border-color:var(--bad);}
 
   .plan-desc{color:var(--text-dim); font-size:12.5px; margin-top:4px;}
+  .achievement-card{display:flex; gap:12px; align-items:flex-start; padding:12px 14px;}
+  .achievement-card.locked{opacity:.45;}
+  .achievement-icon{font-size:22px; line-height:1; flex-shrink:0;}
+  .achievement-name{font-weight:700; font-family:var(--ff-display); font-size:14px;}
+  .achievement-desc{font-size:12.5px; color:var(--text-dim); margin-top:2px;}
+  .achievement-rarity{font-size:11.5px; color:var(--accent-2); margin-top:5px; font-weight:600;}
   .quick-img-wrap{margin-top:10px; display:none;}
   .quick-img-wrap.open{display:block;}
   .quick-img-wrap img{width:100%; display:block; border-radius:10px; border:1px solid var(--line); background:var(--surface);}
@@ -563,6 +569,13 @@
     </div>
   </section>
 
+  <!-- ===================== ACHIEVEMENTS ===================== -->
+  <section class="view" id="view-achievements">
+    <div class="card" id="rankSummaryCard"></div>
+    <div class="muted" style="font-size:12px; margin:12px 4px 8px;">La dificultad de cada logro es una estimación propia, no una estadística real de otros usuarios (la app no tiene servidor ni guarda datos de nadie más).</div>
+    <div id="achievementsList"></div>
+  </section>
+
 </main>
 
 <div class="fab-save" id="fabSave">
@@ -585,6 +598,10 @@
   <button class="tab-btn" data-view="history">
     <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
     Progreso
+  </button>
+  <button class="tab-btn" data-view="achievements">
+    <svg viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v4a5 5 0 0 1-10 0V4z"/><path d="M7 5H4v2a3 3 0 0 0 3 3M17 5h3v2a3 3 0 0 1-3 3"/></svg>
+    Logros
   </button>
 </nav>
 
@@ -1679,22 +1696,47 @@ function computeStreak(sessions){
  */
 const RANK_LEVEL_WEIGHT = {Principiante:1, Intermedio:2, Avanzado:4, "Élite":8};
 
-function computeMasteryScore(sessions){
+/**
+ * Conjunto de ejercicios DISTINTOS dominados alguna vez en el historial
+ * (clave "Familia::Nombre"), sin contar estiramientos. Función base
+ * reutilizada por computeMasteryScore(), isFamilyFullyMastered() y los
+ * logros — así todos miden "dominado" exactamente igual (summarizeAttempt).
+ */
+function getMasteredExerciseSet(sessions){
   const masteredKeys = new Set();
-  let score = 0;
   sessions.forEach(session=>{
     (session.exercises||[]).forEach(sEx=>{
       if(!sEx.family || sEx.family === "Estiramientos") return;
       const key = `${sEx.family}::${sEx.name}`;
       if(masteredKeys.has(key)) return;
       if(!summarizeAttempt(sEx).mastered) return;
-      const ex = findExerciseByName(sEx.family, sEx.name);
-      if(!ex) return;
       masteredKeys.add(key);
-      score += RANK_LEVEL_WEIGHT[ex.level] || 0;
+    });
+  });
+  return masteredKeys;
+}
+
+function computeMasteryScore(sessions){
+  const masteredKeys = getMasteredExerciseSet(sessions);
+  let score = 0;
+  FAMILIES.forEach(family => {
+    DB[family].forEach(ex => {
+      if(masteredKeys.has(`${family}::${ex.name}`)) score += RANK_LEVEL_WEIGHT[ex.level] || 0;
     });
   });
   return score;
+}
+
+/** ¿Se ha dominado alguna vez CUALQUIER ejercicio del nivel dado (en cualquier familia)? */
+function hasMasteredLevel(sessions, level){
+  const masteredKeys = getMasteredExerciseSet(sessions);
+  return FAMILIES.some(family => DB[family].some(ex => ex.level === level && masteredKeys.has(`${family}::${ex.name}`)));
+}
+
+/** ¿Se han dominado alguna vez TODOS los ejercicios de una familia? */
+function isFamilyFullyMastered(family, sessions){
+  const masteredKeys = getMasteredExerciseSet(sessions);
+  return DB[family].every(ex => masteredKeys.has(`${family}::${ex.name}`));
 }
 
 /** Máximo teórico de computeMasteryScore: todo el catálogo actual (sin estiramientos) dominado. Se calcula del catálogo real, nunca hardcodeado, para no desincronizarse si crece. */
@@ -1736,6 +1778,45 @@ function computeRank(sessions){
     else { next = RANK_TIERS[i]; break; }
   }
   return { name: current.name, score, max, ratio, next: next ? next.name : null };
+}
+
+/**
+ * Catálogo de logros. Cada uno tiene una "dificultad estimada" (rareza) que
+ * es una valoración propia de lo difícil que es conseguirlo, NO una
+ * estadística real de otros usuarios — la app no tiene servidor, así que no
+ * existe ningún dato real de "cuánta gente lo ha conseguido" que se pueda
+ * mostrar honestamente. Se etiqueta siempre como estimación en la propia
+ * vista de Logros para que quede claro.
+ * `check(sessions, muscleLogs)` es puro y no debe tocar el DOM.
+ */
+const ACHIEVEMENTS = [
+  { id:"first_session", name:"Primer paso", desc:"Guarda tu primera sesión de entreno.", rarity:"Común", difficulty:0.70, check:(s)=> s.length >= 1 },
+  { id:"sessions_10", name:"Constancia", desc:"Guarda 10 sesiones.", rarity:"Común", difficulty:0.45, check:(s)=> s.length >= 10 },
+  { id:"sessions_50", name:"Hábito de hierro", desc:"Guarda 50 sesiones.", rarity:"Poco común", difficulty:0.18, check:(s)=> s.length >= 50 },
+  { id:"sessions_100", name:"Veterano", desc:"Guarda 100 sesiones.", rarity:"Raro", difficulty:0.07, check:(s)=> s.length >= 100 },
+  { id:"streak_3", name:"Encendiendo la llama", desc:"Entrena 3 días seguidos.", rarity:"Común", difficulty:0.40, check:(s)=> computeStreak(s) >= 3 },
+  { id:"streak_7", name:"Una semana entera", desc:"Entrena 7 días seguidos.", rarity:"Poco común", difficulty:0.15, check:(s)=> computeStreak(s) >= 7 },
+  { id:"streak_30", name:"Racha imparable", desc:"Entrena 30 días seguidos.", rarity:"Épico", difficulty:0.02, check:(s)=> computeStreak(s) >= 30 },
+  { id:"first_mastery", name:"Primer dominio", desc:"Domina un ejercicio por primera vez (series completas y RPE bajo).", rarity:"Común", difficulty:0.55, check:(s)=> getMasteredExerciseSet(s).size >= 1 },
+  { id:"master_advanced", name:"Subiendo el listón", desc:"Domina un ejercicio de nivel Avanzado.", rarity:"Poco común", difficulty:0.20, check:(s)=> hasMasteredLevel(s, "Avanzado") },
+  { id:"master_elite", name:"Nivel élite", desc:"Domina un ejercicio de nivel Élite.", rarity:"Raro", difficulty:0.06, check:(s)=> hasMasteredLevel(s, "Élite") },
+  { id:"family_empuje", name:"Maestro del Empuje", desc:"Domina todos los ejercicios de la familia Empuje.", rarity:"Legendario", difficulty:0.005, check:(s)=> isFamilyFullyMastered("Empuje", s) },
+  { id:"family_tiron", name:"Maestro del Tirón", desc:"Domina todos los ejercicios de la familia Tirón.", rarity:"Legendario", difficulty:0.005, check:(s)=> isFamilyFullyMastered("Tirón", s) },
+  { id:"family_piernas", name:"Maestro de Piernas", desc:"Domina todos los ejercicios de la familia Piernas.", rarity:"Legendario", difficulty:0.005, check:(s)=> isFamilyFullyMastered("Piernas", s) },
+  { id:"family_core", name:"Maestro del Core", desc:"Domina todos los ejercicios de la familia Core.", rarity:"Legendario", difficulty:0.005, check:(s)=> isFamilyFullyMastered("Core", s) },
+  { id:"family_anillas", name:"Maestro de Anillas", desc:"Domina todos los ejercicios de la familia Anillas.", rarity:"Legendario", difficulty:0.005, check:(s)=> isFamilyFullyMastered("Anillas", s) },
+  { id:"family_dinamicos", name:"Maestro de Dinámicos", desc:"Domina todos los ejercicios de la familia Dinámicos.", rarity:"Legendario", difficulty:0.005, check:(s)=> isFamilyFullyMastered("Dinámicos", s) },
+  { id:"family_freestyle", name:"Maestro de Freestyle", desc:"Domina todos los ejercicios de la familia Freestyle.", rarity:"Legendario", difficulty:0.005, check:(s)=> isFamilyFullyMastered("Freestyle", s) },
+  { id:"rank_bronce", name:"Rango Bronce", desc:"Alcanza el rango Bronce.", rarity:"Común", difficulty:0.35, check:(s)=> computeRank(s).ratio >= 0.03 },
+  { id:"rank_oro", name:"Rango Oro", desc:"Alcanza el rango Oro.", rarity:"Poco común", difficulty:0.13, check:(s)=> computeRank(s).ratio >= 0.13 },
+  { id:"rank_diamante", name:"Rango Diamante", desc:"Alcanza el rango Diamante.", rarity:"Épico", difficulty:0.03, check:(s)=> computeRank(s).ratio >= 0.38 },
+  { id:"rank_challenger", name:"Retador", desc:"Alcanza el rango máximo: prácticamente todo el catálogo dominado.", rarity:"Legendario", difficulty:0.001, check:(s)=> computeRank(s).ratio >= 0.80 },
+  { id:"muscleup_clean", name:"Primer muscle-up limpio", desc:"Registra un muscle-up con ejecución limpia en el apartado Muscle-Up.", rarity:"Raro", difficulty:0.08, check:(s, m)=> (m||[]).some(entry => entry.quality === "Limpio") }
+];
+
+/** Devuelve ACHIEVEMENTS con un booleano `unlocked` por cada uno, a partir del historial actual. Puro. */
+function computeAchievements(sessions, muscleLogs){
+  return ACHIEVEMENTS.map(a => ({ ...a, unlocked: a.check(sessions, muscleLogs) }));
 }
 
 const REST_SECONDS = 75;
@@ -2135,7 +2216,8 @@ const TITLES = {
   dashboard: ["HOY", "Entreno del día", "Construye tu sesión y márcala serie a serie."],
   muscleup: ["TÉCNICA", "Calidad de Muscle-Up", "Evalúa cada repetición con detalle."],
   library: ["REFERENCIA", "Biblioteca de ejercicios", "Explora familias, niveles y progresiones."],
-  history: ["REGISTRO", "Historial de progreso", "Revisa tus sesiones y avances pasados."]
+  history: ["REGISTRO", "Historial de progreso", "Revisa tus sesiones y avances pasados."],
+  achievements: ["LOGROS", "Rango y logros", "Tu progreso convertido en récords."]
 };
 
 function switchView(view){
@@ -2148,6 +2230,7 @@ function switchView(view){
   document.getElementById("viewSub").textContent = sub;
   document.getElementById("fabSave").style.display = view==="dashboard" ? "flex" : "none";
   document.getElementById("todayDate").style.display = view==="dashboard" ? "flex" : "none";
+  if(view === "achievements") renderAchievements();
 }
 
 /**
@@ -2249,6 +2332,47 @@ function openRankModal(){
   document.getElementById("btnCloseRank").addEventListener("click", ()=>{ modal.style.display = "none"; });
 }
 
+/** Formatea una fracción (0-1) como porcentaje corto, con más decimales cuanto más pequeño ("0.1%", "6%", "45%"). */
+function formatDifficultyPct(fraction){
+  const pct = fraction * 100;
+  if(pct < 1) return pct.toFixed(2).replace(/0+$/, "").replace(/\.$/, "") + "%";
+  if(pct < 10) return (Math.round(pct*10)/10).toString() + "%";
+  return Math.round(pct) + "%";
+}
+
+/** Vista "Logros": tarjeta de rango arriba + lista de logros (conseguidos primero), cada uno con su dificultad estimada. */
+function renderAchievements(){
+  const rankCard = document.getElementById("rankSummaryCard");
+  const list = document.getElementById("achievementsList");
+  if(!rankCard || !list) return;
+
+  const rank = computeRank(AppState.sessions);
+  const pct = Math.round(rank.ratio * 100);
+  rankCard.innerHTML = `
+    <div class="card-title">🏆 Rango actual: ${rank.name}</div>
+    <div class="report-line"><strong>${pct}%</strong> del catálogo dominado (${rank.score} de ${rank.max} puntos posibles).</div>
+    ${rank.next ? `<div class="report-line">Siguiente rango: <strong>${rank.next}</strong>.</div>` : `<div class="report-line"><strong>¡Rango máximo alcanzado!</strong></div>`}
+  `;
+
+  const achievements = computeAchievements(AppState.sessions, AppState.muscleLogs);
+  const sorted = [...achievements].sort((a,b) => (a.unlocked === b.unlocked) ? 0 : (a.unlocked ? -1 : 1));
+  const unlockedCount = achievements.filter(a=>a.unlocked).length;
+
+  list.innerHTML = `
+    <div class="muted" style="font-size:13px; margin:0 4px 10px;">${unlockedCount} de ${achievements.length} logros conseguidos.</div>
+    ${sorted.map(a => `
+      <div class="card achievement-card ${a.unlocked ? "unlocked" : "locked"}">
+        <div class="achievement-icon">${a.unlocked ? "🏆" : "🔒"}</div>
+        <div class="achievement-body">
+          <div class="achievement-name">${escapeHtml(a.name)}</div>
+          <div class="achievement-desc">${escapeHtml(a.desc)}</div>
+          <div class="achievement-rarity">${a.rarity} · dificultad estimada ${formatDifficultyPct(a.difficulty)}</div>
+        </div>
+      </div>
+    `).join("")}
+  `;
+}
+
 function initNavigation(){
   document.querySelectorAll(".tab-btn").forEach(btn=>{
     btn.addEventListener("click", ()=> switchView(btn.dataset.view));
@@ -2324,7 +2448,15 @@ function renderPlan(){
     head.appendChild(actions);
     card.appendChild(head);
 
-    if(ex.desc){
+    // El "cómo hacerlo" va SIEMPRE visible, no escondido detrás de ningún
+    // toggle: es justo lo que hace falta para ejecutar el ejercicio sin
+    // tener que irse a la Biblioteca a buscarlo entre todo el catálogo.
+    if(ex.howTo){
+      const howtoEl = document.createElement("div");
+      howtoEl.className = "plan-howto";
+      howtoEl.innerHTML = `<strong>Cómo hacerlo:</strong> ${ex.howTo}`;
+      card.appendChild(howtoEl);
+    } else if(ex.desc){
       const descEl = document.createElement("div");
       descEl.className = "plan-desc";
       descEl.textContent = ex.desc;
@@ -2334,10 +2466,7 @@ function renderPlan(){
     const quickImgWrap = document.createElement("div");
     quickImgWrap.className = "quick-img-wrap";
     const photo = resolveExercisePhoto(ex);
-    quickImgWrap.innerHTML = `
-      <img src="${photo.src}" alt="Ilustración de ${ex.name}" loading="lazy">
-      ${ex.howTo ? `<div class="plan-howto"><strong>Cómo hacerlo:</strong> ${ex.howTo}</div>` : ""}
-    `;
+    quickImgWrap.innerHTML = `<img src="${photo.src}" alt="Ilustración de ${ex.name}" loading="lazy">`;
     imgBtn.addEventListener("click", ()=>{
       const open = quickImgWrap.classList.toggle("open");
       imgBtn.classList.toggle("on", open);
@@ -2950,6 +3079,14 @@ function _assertTrue(cond, msg){ if(!cond) throw new Error(msg || "se esperaba u
  * persistPlan()/persistSessions()/persistMuscleLogs() de verdad sin arriesgar
  * ni un byte de los datos reales del usuario (entreno de hoy, historial,
  * registros de Muscle-Up), pase lo que pase dentro de `fn` (incluso si lanza).
+ *
+ * IMPORTANTE: si `fn` llama a una función que además pinta en pantalla (por
+ * ejemplo runRecommendedWorkout(), que dispara renderPlan()), el DOM se
+ * queda con ese resultado de prueba aunque AppState ya se haya restaurado —
+ * bug real que se coló una vez (la vista "Hoy" mostraba un entreno falso de
+ * la suite de tests hasta que el usuario tocaba algo). Por eso, al terminar,
+ * se vuelve a pintar todo lo que depende de estas claves para que la
+ * pantalla quede tan intacta como los datos.
  */
 function withSandboxedState(fn){
   const keysToBackup = [STORE_KEYS.plan, STORE_KEYS.notes, STORE_KEYS.sessions, STORE_KEYS.muscleup, "__test_roundtrip__"];
@@ -2972,6 +3109,11 @@ function withSandboxedState(fn){
     AppState.sessions = stateBackup.sessions;
     AppState.muscleLogs = stateBackup.muscleLogs;
     AppState.sessionNotes = stateBackup.sessionNotes;
+    if(typeof renderPlan === "function") renderPlan();
+    if(typeof renderRecoSummary === "function") renderRecoSummary("", []);
+    if(typeof renderHistory === "function") renderHistory();
+    if(typeof renderMuscleHistory === "function") renderMuscleHistory();
+    if(typeof renderWeekStrip === "function") renderWeekStrip();
   }
 }
 
@@ -3569,6 +3711,61 @@ function runUnitTests(){
       AppState.todayPlan = [];
       runRecommendedWorkout();
       _assertTrue(AppState.todayPlan.length > 0, "debería rellenar el plan de hoy");
+    });
+  });
+  _groupEnd();
+
+  _groupCollapsed("7) Logros y explicación siempre visible en el plan generado");
+  test("getMasteredExerciseSet() ignora estiramientos y solo cuenta lo realmente dominado", () => {
+    const sessions = [{exercises:[
+      {name:"Círculos de brazos", family:"Estiramientos", sets:[{reps:20,done:true,rpe:1}]},
+      {name:"Flexiones estándar", family:"Empuje", sets:[{reps:12,done:true,rpe:5}]},
+      {name:"Dominada estricta", family:"Tirón", sets:[{reps:5,done:true,rpe:9}]} // RPE alto, no dominado
+    ]}];
+    const mastered = getMasteredExerciseSet(sessions);
+    _assertTrue(mastered.has("Empuje::Flexiones estándar"));
+    _assertTrue(!mastered.has("Estiramientos::Círculos de brazos"));
+    _assertTrue(!mastered.has("Tirón::Dominada estricta"));
+  });
+  test("hasMasteredLevel() solo es true si hay un ejercicio de ESE nivel dominado", () => {
+    const sessions = [{exercises:[{name:"Flexiones estándar", family:"Empuje", sets:[{reps:12,done:true,rpe:5}]}]}]; // Principiante
+    _assertTrue(hasMasteredLevel(sessions, "Principiante"));
+    _assertTrue(!hasMasteredLevel(sessions, "Élite"));
+  });
+  test("isFamilyFullyMastered() exige dominar TODOS los ejercicios de la familia, no solo uno", () => {
+    const partial = [{exercises:[{name:"Flexiones estándar", family:"Empuje", sets:[{reps:12,done:true,rpe:5}]}]}];
+    _assertTrue(!isFamilyFullyMastered("Empuje", partial));
+    const full = [{exercises: DB["Core"].map(ex => ({name:ex.name, family:"Core", sets:[{reps:5,done:true,rpe:5}]}))}];
+    _assertTrue(isFamilyFullyMastered("Core", full));
+  });
+  test("ACHIEVEMENTS tiene ids únicos y dificultades entre 0 y 1", () => {
+    const ids = ACHIEVEMENTS.map(a=>a.id);
+    _assertEqual(new Set(ids).size, ids.length, "hay ids de logro duplicados");
+    ACHIEVEMENTS.forEach(a => _assertTrue(a.difficulty > 0 && a.difficulty <= 1, `${a.id}: dificultad fuera de rango`));
+  });
+  test("computeAchievements() marca 'unlocked' según el historial real, sin mutar ACHIEVEMENTS", () => {
+    const withoutHistory = computeAchievements([], []);
+    _assertTrue(withoutHistory.every(a => a.unlocked === false), "sin historial no debería haber logros conseguidos");
+    const withOneSession = computeAchievements([{exercises:[]}], []);
+    const firstStep = withOneSession.find(a => a.id === "first_session");
+    _assertTrue(firstStep.unlocked === true);
+    _assertTrue(ACHIEVEMENTS.find(a=>a.id==="first_session").unlocked === undefined, "no debería añadir el campo al objeto original");
+  });
+  test("formatDifficultyPct() da porcentajes legibles en los tres rangos de magnitud", () => {
+    _assertEqual(formatDifficultyPct(0.45), "45%");
+    _assertEqual(formatDifficultyPct(0.07), "7%");
+    _assertEqual(formatDifficultyPct(0.005), "0.5%");
+    _assertEqual(formatDifficultyPct(0.001), "0.1%");
+  });
+  test("renderPlan() muestra SIEMPRE el 'Cómo hacerlo' de cada ejercicio, sin tener que desplegar nada", () => {
+    withSandboxedState(() => {
+      AppState.todayPlan = [{ exId:"est_rotacion_tronco", sets: makeSets(1, 20) }];
+      renderPlan();
+      const howtoEl = document.querySelector("#planList .plan-howto");
+      _assertTrue(!!howtoEl, "debería haber un bloque 'Cómo hacerlo' visible");
+      _assertTrue(howtoEl.textContent.includes("Cómo hacerlo"));
+      _assertTrue(getComputedStyle(howtoEl.closest(".plan-item")).display !== "none");
+      _assertTrue(!howtoEl.closest(".quick-img-wrap"), "no debe estar escondido dentro del toggle de la foto");
     });
   });
   _groupEnd();
