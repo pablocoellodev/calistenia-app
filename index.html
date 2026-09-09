@@ -81,6 +81,18 @@
   }
   .level-badge:active{transform:scale(.96);}
 
+  .rank-badge{
+    position:absolute; top:54px; right:18px; background:var(--surface-2); color:#ffcc4d;
+    border:1px solid var(--line); border-radius:999px; padding:5px 11px; font-size:11.5px; font-weight:700;
+    cursor:pointer; font-family:var(--ff-display);
+  }
+  .rank-badge:active{transform:scale(.96);}
+
+  .streak-line{display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:var(--text-faint); margin-bottom:12px;}
+  .streak-line.active{color:#ff9a3c;}
+  .streak-line .flame{font-size:15px; filter:grayscale(1); opacity:.5;}
+  .streak-line.active .flame{filter:none; opacity:1;}
+
   .modal-overlay{
     position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center;
     z-index:100; padding:20px;
@@ -274,9 +286,12 @@
   .icon-btn.on{color:var(--accent); border-color:var(--accent-dim);}
   .icon-btn.danger:active{color:var(--bad); border-color:var(--bad);}
 
+  .plan-desc{color:var(--text-dim); font-size:12.5px; margin-top:4px;}
   .quick-img-wrap{margin-top:10px; display:none;}
   .quick-img-wrap.open{display:block;}
   .quick-img-wrap img{width:100%; display:block; border-radius:10px; border:1px solid var(--line); background:var(--surface);}
+  .plan-howto{font-size:12.5px; color:var(--text-dim); line-height:1.5; margin-top:8px;}
+  .plan-howto strong{color:var(--text);}
 
   .ex-img-toggle{
     margin-top:8px; display:flex; align-items:center; gap:6px; background:none; border:none;
@@ -302,6 +317,7 @@
   @media (min-width:640px){
     header.topbar{padding-left:28px; padding-right:28px;}
     .level-badge{right:28px;}
+    .rank-badge{right:28px;}
     main{max-width:640px; margin-left:auto; margin-right:auto; padding-left:28px; padding-right:28px;}
     .fab-save{max-width:640px; margin-left:auto; margin-right:auto;}
   }
@@ -328,13 +344,13 @@
     }
     header.topbar{padding-left:32px; padding-right:32px;}
     .level-badge{right:32px;}
+    .rank-badge{right:32px;}
     main{padding:4px 32px 40px;}
     .fab-save{padding:0 32px; box-sizing:border-box; bottom:24px;}
 
     /* Dashboard: sticky "add exercise" card beside the plan */
     #view-dashboard.active{display:grid; grid-template-columns:340px 1fr; gap:20px; align-items:start;}
     #view-dashboard.active > #btnGenerateWorkout,
-    #view-dashboard.active > #familyPickerPanel,
     #view-dashboard.active > #recoSummary{grid-column:1 / -1;}
     #view-dashboard.active > #addExerciseCard{grid-column:1; position:sticky; top:20px;}
     #view-dashboard.active > #planList,
@@ -371,6 +387,7 @@
   <div class="sub" id="viewSub">Construye tu sesión y márcala serie a serie.</div>
   <div class="today-date" id="todayDate"></div>
   <button class="level-badge" id="btnUserLevel" type="button" title="Cambiar nivel de partida">Nivel: —</button>
+  <button class="rank-badge" id="rankBadge" type="button" title="Ver tu rango"></button>
 </header>
 
 <div class="modal-overlay" id="levelModal" style="display:none;">
@@ -379,6 +396,10 @@
     <p class="report-line">Se usa como punto de arranque en las familias donde aún no tengas historial guardado, para no mandarte siempre a Principiante. Podrás subir de nivel más adelante completando los checkpoints.</p>
     <div class="chip-row" id="levelModalChips"></div>
   </div>
+</div>
+
+<div class="modal-overlay" id="rankModal" style="display:none;">
+  <div class="modal-card" id="rankModalBody"></div>
 </div>
 
 <div class="modal-overlay" id="reportModal" style="display:none;">
@@ -393,6 +414,7 @@
 
   <!-- ===================== DASHBOARD ===================== -->
   <section class="view active" id="view-dashboard">
+    <div class="streak-line" id="streakLine"></div>
     <div class="week-strip" id="weekStrip"></div>
     <div class="card" id="levelOnboardingCard" style="display:none;">
       <div class="card-title">
@@ -403,10 +425,6 @@
       <div class="chip-row" id="levelOnboardingChips"></div>
     </div>
     <button class="btn btn-block btn-reco" id="btnGenerateWorkout">⚡ Generar Entreno Recomendado</button>
-    <div class="card family-picker" id="familyPickerPanel" style="display:none;">
-      <div class="card-title">¿Qué quieres trabajar hoy?</div>
-      <div class="chip-row" id="familyPickerChips"></div>
-    </div>
     <div id="recoSummary"></div>
 
     <div class="card" id="addExerciseCard">
@@ -536,6 +554,7 @@
 
   <!-- ===================== HISTORY ===================== -->
   <section class="view" id="view-history">
+    <div class="muted" style="font-size:12px; margin:0 4px 8px;">Formato de cada serie: reps/RPE (ej. "12/7" = 12 repeticiones a RPE 7).</div>
     <div id="historyList"></div>
     <div class="empty-state" id="histEmpty">
       <div class="big">📈</div>
@@ -673,7 +692,7 @@ const DB = {
     {id:"tir_dominada_banda", name:"Dominada asistida con banda", level:"Intermedio", progressesTo:"tir_dominada_estricta", desc:"Banda elástica anclada a la barra bajo el pie o la rodilla, resta parte del peso.", photo:null, videoData:null, equipment:["Barra de dominadas","Banda elástica"], howTo:"Posición inicial: ancla una banda elástica a la barra y pasa el pie o la rodilla por dentro. Ejecución: realiza la dominada completa dejando que la banda asista la parte más dura del recorrido, sin perder la técnica. Errores comunes: usar una banda demasiado gruesa que quite todo el esfuerzo real."},
     {id:"tir_dominada_estricta", name:"Dominada estricta", level:"Avanzado", progressesTo:"tir_dominada_estricta_pausa", desc:"Rango completo, sin impulso, agarre prono.", photo:null, videoData:null, youtubeId:"MhokcbRLP5w", equipment:["Barra de dominadas"], howTo:"Posición inicial: cuelga de la barra con agarre prono a la anchura de hombros, brazos completamente extendidos, sin balanceo. Ejecución: tira hacia arriba hasta que la barbilla supere la barra, manteniendo el cuerpo recto sin patalear ni usar impulso, y baja con control hasta la extensión completa. Errores comunes: usar impulso de piernas o balanceo (kipping), y no bajar hasta la extensión completa entre repeticiones."},
     {id:"tir_dominada_estricta_pausa", name:"Dominada con pausa arriba", level:"Avanzado", progressesTo:"tir_dominada_arquero", desc:"Pausa de 1-2s con la barbilla sobre la barra en cada repetición.", photo:null, videoData:null, equipment:["Barra de dominadas"], howTo:"Posición inicial: igual que la dominada estricta. Ejecución: al llegar arriba con la barbilla sobre la barra, mantén una pausa de 1-2 segundos antes de bajar con control. Errores comunes: acortar la pausa o perder tensión de espalda durante ella."},
-    {id:"tir_dominada_arquero", name:"Dominada de arquero", level:"Avanzado", progressesTo:"tir_dominada_un_brazo_asistida", desc:"Un brazo extendido, el otro tracciona todo el peso.", photo:null, videoData:null, equipment:["Barra de dominadas"], howTo:"Posición inicial: agarre ancho en la barra, uno de los brazos será el que traccione y el otro permanecerá recto durante toda la repetición. Ejecución: tira desplazando el cuerpo hacia el lado del brazo de trabajo, mientras el otro brazo se mantiene extendido y solo actúa de apoyo, y baja con control. Errores comunes: flexionar el brazo que debería quedar recto (reduce la dificultad y el propósito del ejercicio), y no alternar el trabajo entre ambos lados."},
+    {id:"tir_dominada_arquero", name:"Dominada de arquero", level:"Avanzado", progressesTo:"tir_dominada_un_brazo_asistida", desc:"Un brazo extendido, el otro tracciona todo el peso.", photo:null, videoData:null, youtubeId:"_LGLKUiQH5k", equipment:["Barra de dominadas"], howTo:"Posición inicial: agarre ancho en la barra, uno de los brazos será el que traccione y el otro permanecerá recto durante toda la repetición. Ejecución: tira desplazando el cuerpo hacia el lado del brazo de trabajo, mientras el otro brazo se mantiene extendido y solo actúa de apoyo, y baja con control. Errores comunes: flexionar el brazo que debería quedar recto (reduce la dificultad y el propósito del ejercicio), y no alternar el trabajo entre ambos lados."},
     {id:"tir_dominada_un_brazo_asistida", name:"Dominada a un brazo asistida", level:"Élite", progressesTo:"tir_dominada_un_brazo", desc:"Banda elástica o toalla en la mano libre para asistir la tracción a un brazo.", photo:null, videoData:null, equipment:["Barra de dominadas","Banda elástica"], howTo:"Posición inicial: cuelga de la barra con un brazo, la mano libre sujeta una banda anclada arriba o una toalla que cuelga de la barra. Ejecución: tira con el brazo principal dejando que la asistencia reduzca solo la parte final del recorrido, y baja con control. Errores comunes: tirar principalmente con el brazo de asistencia."},
     {id:"tir_dominada_un_brazo", name:"Dominada a un brazo", level:"Élite", progressesTo:null, desc:"Tracción completa con un solo brazo.", photo:null, videoData:null, equipment:["Barra de dominadas"], howTo:"Posición inicial: cuelga de la barra con un solo brazo, agarre firme, el otro brazo libre a un lado o sujetando la muñeca de trabajo al principio del aprendizaje. Ejecución: tira con control total, sin balanceo, hasta acercar la barbilla a la altura de la mano, y baja despacio controlando la fase excéntrica. Errores comunes: intentarlo sin una base sólida de dominadas lastradas y arqueras, y generar balanceo del cuerpo para ayudarse."},
     {id:"tir_dominada_supina", name:"Dominada supina (chin-up)", level:"Intermedio", progressesTo:"tir_dominada_neutra", desc:"Agarre supino, mayor implicación de bíceps.", photo:null, videoData:null, equipment:["Barra de dominadas"], howTo:"Posición inicial: cuelga de la barra con agarre supino (palmas mirando hacia ti) a la anchura de hombros, brazos extendidos. Ejecución: tira hacia arriba llevando el pecho hacia la barra, con mayor participación del bíceps que en el agarre prono, y baja con control hasta la extensión completa. Errores comunes: balancearte para ganar impulso, y no completar el rango de movimiento."},
@@ -756,13 +775,13 @@ const DB = {
     {id:"cor_plancha_rodillas", name:"Plancha con rodillas apoyadas", level:"Principiante", progressesTo:"cor_plancha", desc:"Igual que la plancha frontal pero con las rodillas en el suelo, menos palanca.", photo:null, videoData:null, equipment:[], howTo:"Posición inicial: apóyate en los antebrazos y las rodillas, cuerpo recto de rodillas a cabeza. Ejecución: mantén la posición apretando el abdomen, sin dejar que la cadera suba ni baje. Errores comunes: elevar demasiado la cadera.", hold:true},
     {id:"cor_plancha", name:"Plancha frontal", level:"Principiante", progressesTo:"cor_plancha_brazos_extendidos", desc:"Cuerpo en línea recta, sin ceder cadera.", photo:null, videoData:null, youtubeId:"mwlp75MS6Rg", equipment:[], howTo:"Posición inicial: apóyate sobre los antebrazos y las puntas de los pies, codos bajo los hombros, cuerpo formando una línea recta de talones a cabeza. Ejecución: mantén la posición apretando abdomen y glúteos, sin dejar que la cadera suba ni baje, respirando de forma controlada. Errores comunes: dejar que la cadera se hunda (arqueo lumbar), y elevar demasiado la cadera para «hacer trampa» y aguantar más tiempo.", hold:true},
     {id:"cor_plancha_brazos_extendidos", name:"Plancha con brazos extendidos", level:"Principiante", progressesTo:"cor_hollow_hold", desc:"Plancha alta apoyada en las manos en vez de los antebrazos, mayor palanca de hombro.", photo:null, videoData:null, equipment:[], howTo:"Posición inicial: plancha alta, brazos extendidos, manos bajo los hombros. Ejecución: mantén el cuerpo en línea recta apretando abdomen y glúteos. Errores comunes: dejar que los hombros se encojan hacia las orejas.", hold:true},
-    {id:"cor_hollow_hold", name:"Hollow body hold", level:"Intermedio", progressesTo:"cor_hollow_rock", desc:"Zona lumbar pegada al suelo, hombros y piernas fuera.", photo:null, videoData:null, equipment:[], howTo:"Posición inicial: túmbate boca arriba, brazos extendidos por encima de la cabeza, piernas juntas y extendidas. Ejecución: eleva ligeramente hombros y piernas del suelo, presionando la zona lumbar contra el suelo, formando una curva suave con todo el cuerpo, y mantén la posición. Errores comunes: que la zona lumbar se despegue del suelo (arco en vez de hollow), y elevar demasiado las piernas perdiendo la presión lumbar.", hold:true},
+    {id:"cor_hollow_hold", name:"Hollow body hold", level:"Intermedio", progressesTo:"cor_hollow_rock", desc:"Zona lumbar pegada al suelo, hombros y piernas fuera.", photo:null, videoData:null, youtubeId:"0yPin8hSc8o", equipment:[], howTo:"Posición inicial: túmbate boca arriba, brazos extendidos por encima de la cabeza, piernas juntas y extendidas. Ejecución: eleva ligeramente hombros y piernas del suelo, presionando la zona lumbar contra el suelo, formando una curva suave con todo el cuerpo, y mantén la posición. Errores comunes: que la zona lumbar se despegue del suelo (arco en vez de hollow), y elevar demasiado las piernas perdiendo la presión lumbar.", hold:true},
     {id:"cor_hollow_rock", name:"Hollow rock", level:"Avanzado", progressesTo:"cor_elevacion_rodillas_barra", desc:"Desde el hollow hold, balancea todo el cuerpo hacia delante y atrás sin perder la forma.", photo:null, videoData:null, equipment:[], howTo:"Posición inicial: posición de hollow hold. Ejecución: balancea todo el cuerpo como una sola pieza rígida hacia delante y atrás, manteniendo la zona lumbar pegada al suelo en cada balanceo. Errores comunes: perder la forma de hollow al balancearte, arqueando la espalda."},
     {id:"cor_elevacion_rodillas_barra", name:"Elevación de rodillas colgado", level:"Intermedio", progressesTo:"cor_elevacion_piernas_barra", desc:"Colgado de la barra, lleva las rodillas al pecho sin balancear.", photo:null, videoData:null, equipment:["Barra de dominadas"], howTo:"Posición inicial: cuelga de la barra con los brazos extendidos. Ejecución: eleva las rodillas hacia el pecho usando el abdomen, sin balancear el cuerpo, y baja con control. Errores comunes: usar impulso de piernas para iniciar el movimiento."},
     {id:"cor_elevacion_piernas_barra", name:"Elevación de piernas en barra", level:"Avanzado", progressesTo:"cor_toes_to_bar", desc:"Colgado, piernas rectas hasta la horizontal.", photo:null, videoData:null, equipment:["Barra de dominadas"], howTo:"Posición inicial: cuelga de la barra con los brazos extendidos, piernas juntas y rectas. Ejecución: eleva las piernas rectas hasta la horizontal (o más alto si puedes) sin balancear el cuerpo, usando el abdomen para iniciar el movimiento, y baja con control. Errores comunes: usar balanceo del cuerpo para impulsar las piernas arriba, y no controlar la fase de bajada."},
     {id:"cor_toes_to_bar", name:"Toes to bar", level:"Avanzado", progressesTo:"cor_dragon_flag_negativa", desc:"Punta de los pies hasta tocar la barra.", photo:null, videoData:null, equipment:["Barra de dominadas"], howTo:"Posición inicial: cuelga de la barra con los brazos extendidos, piernas juntas. Ejecución: eleva las piernas rectas o semi-flexionadas hasta tocar la barra con la punta de los pies, manteniendo la tensión del core, y baja con control evitando el balanceo excesivo. Errores comunes: generar todo el movimiento con balanceo (kipping) en vez de fuerza de core, y no llegar a tocar realmente la barra."},
     {id:"cor_dragon_flag_negativa", name:"Dragon flag negativa", level:"Avanzado", progressesTo:"cor_dragon_flag", desc:"Solo la fase de bajada controlada; sube apoyando la cadera si hace falta.", photo:null, videoData:null, equipment:["Banco"], howTo:"Posición inicial: túmbate en un banco sujetando algo fijo por encima de la cabeza, cuerpo elevado con solo los omóplatos en contacto. Ejecución: baja lo más lento posible controlando la rigidez del cuerpo, y para volver arriba apoya la cadera en el banco si aún no tienes fuerza para subir rígido. Errores comunes: doblar la cadera durante la bajada.", hold:true},
-    {id:"cor_dragon_flag", name:"Dragon flag", level:"Élite", progressesTo:null, desc:"Solo escápulas en contacto, cuerpo rígido en descenso controlado.", photo:null, videoData:null, equipment:["Banco"], howTo:"Posición inicial: túmbate en un banco sujetando algo fijo por encima de la cabeza con las manos, cuerpo recto. Ejecución: eleva todo el cuerpo dejando solo los omóplatos en contacto con el banco, y baja lentamente controlando la rigidez de todo el cuerpo como si fuera una sola pieza, sin doblar la cadera. Errores comunes: doblar la cadera durante el descenso en vez de mantener el cuerpo rígido, y bajar demasiado rápido sin control.", hold:true},
+    {id:"cor_dragon_flag", name:"Dragon flag", level:"Élite", progressesTo:null, desc:"Solo escápulas en contacto, cuerpo rígido en descenso controlado.", photo:null, videoData:null, youtubeId:"69AnMt9Fq9A", equipment:["Banco"], howTo:"Posición inicial: túmbate en un banco sujetando algo fijo por encima de la cabeza con las manos, cuerpo recto. Ejecución: eleva todo el cuerpo dejando solo los omóplatos en contacto con el banco, y baja lentamente controlando la rigidez de todo el cuerpo como si fuera una sola pieza, sin doblar la cadera. Errores comunes: doblar la cadera durante el descenso en vez de mantener el cuerpo rígido, y bajar demasiado rápido sin control.", hold:true},
     {id:"cor_soporte_brazos", name:"Soporte con piernas colgando", level:"Principiante", progressesTo:"cor_lsit_tuck", desc:"Manos en paralelas o en el suelo, cuerpo elevado con las piernas colgando relajadas.", photo:null, videoData:null, equipment:["Paralelas o suelo"], howTo:"Posición inicial: apoya las manos en el suelo o en unas paralelas, brazos extendidos, piernas colgando. Ejecución: mantén los hombros deprimidos y la cadera elevada, sosteniendo la posición. Errores comunes: encoger los hombros hacia las orejas.", hold:true},
     {id:"cor_lsit_tuck", name:"L-sit con rodillas flexionadas (tuck)", level:"Intermedio", progressesTo:"cor_lsit_una_pierna", desc:"Manos en paralelas o suelo, rodillas al pecho, hombros abajo.", photo:null, videoData:null, equipment:["Paralelas o suelo"], howTo:"Posición inicial: apoya las manos en el suelo o en unas paralelas, brazos extendidos, rodillas flexionadas hacia el pecho con los pies elevados del suelo. Ejecución: mantén los hombros deprimidos (alejados de las orejas) y la cadera elevada, sosteniendo la posición con las rodillas pegadas al pecho. Errores comunes: encoger los hombros hacia las orejas, y dejar que la cadera baje demasiado.", hold:true},
     {id:"cor_lsit_una_pierna", name:"L-sit a una pierna", level:"Avanzado", progressesTo:"cor_lsit_completo", desc:"Una pierna extendida y la otra flexionada, alternando.", photo:null, videoData:null, equipment:["Paralelas o suelo"], howTo:"Posición inicial: igual que el L-sit tuck pero con una pierna extendida al frente y la otra flexionada. Ejecución: mantén ambas caderas a la misma altura y los hombros deprimidos mientras sostienes la posición, alternando la pierna extendida entre series. Errores comunes: que la cadera del lado de la pierna extendida caiga más que el otro, y perder la depresión de hombros por fatiga.", hold:true},
@@ -800,7 +819,7 @@ const DB = {
   "Anillas": [
     {id:"ani_soporte_anillas", name:"Soporte básico en anillas", level:"Principiante", progressesTo:"ani_remo_invertido_anillas", desc:"De pie o sentado, sostén el peso del cuerpo con los brazos extendidos en las anillas bajas.", photo:null, videoData:null, equipment:["Anillas"], howTo:"Posición inicial: anillas a la altura de la cadera, sujétalas con los brazos extendidos, cuerpo semi-inclinado con los pies en el suelo. Ejecución: mantén el peso del cuerpo en los brazos con las anillas estables, sin balanceo. Errores comunes: dejar que las anillas se muevan sin control por falta de tensión en el hombro.", hold:true},
     {id:"ani_remo_invertido_anillas", name:"Remo invertido en anillas", level:"Principiante", progressesTo:"ani_dip_apoyo", desc:"Inestabilidad añadida frente a la barra fija.", photo:null, videoData:null, equipment:["Anillas"], howTo:"Posición inicial: sujeta las anillas con los brazos extendidos, cuerpo inclinado hacia atrás en línea recta, talones en el suelo. Ejecución: tira del pecho hacia las anillas apretando omóplatos, permitiendo que las anillas se abran ligeramente hacia los lados en la parte alta, y baja con control. Errores comunes: dejar que las anillas se muevan de forma descontrolada por falta de tensión, y no mantener el cuerpo en línea recta."},
-    {id:"ani_dip_apoyo", name:"Fondos en anillas (apoyo)", level:"Intermedio", progressesTo:"ani_dip_apoyo_rto", desc:"Brazos en soporte, control de la rotación externa.", photo:null, videoData:null, equipment:["Anillas"], howTo:"Posición inicial: sujeta las anillas con los brazos extendidos, cuerpo vertical, anillas rotadas hacia fuera con los codos «apuntando» ligeramente hacia atrás. Ejecución: mantén la posición de soporte controlando el balanceo natural de las anillas, con los hombros deprimidos y el core activado. Errores comunes: dejar que los hombros suban hacia las orejas, y permitir que las anillas oscilen sin control.", hold:true},
+    {id:"ani_dip_apoyo", name:"Fondos en anillas (apoyo)", level:"Intermedio", progressesTo:"ani_dip_apoyo_rto", desc:"Brazos en soporte, control de la rotación externa.", photo:null, videoData:null, youtubeId:"vsw9_y0DEtk", equipment:["Anillas"], howTo:"Posición inicial: sujeta las anillas con los brazos extendidos, cuerpo vertical, anillas rotadas hacia fuera con los codos «apuntando» ligeramente hacia atrás. Ejecución: mantén la posición de soporte controlando el balanceo natural de las anillas, con los hombros deprimidos y el core activado. Errores comunes: dejar que los hombros suban hacia las orejas, y permitir que las anillas oscilen sin control.", hold:true},
     {id:"ani_dip_apoyo_rto", name:"Soporte en anillas con rotación activa (RTO)", level:"Avanzado", progressesTo:"ani_dip_rango_completo", desc:"Soporte manteniendo activamente las anillas rotadas hacia fuera durante todo el tiempo.", photo:null, videoData:null, equipment:["Anillas"], howTo:"Posición inicial: soporte en anillas con brazos extendidos. Ejecución: rota activamente las muñecas y anillas hacia fuera durante toda la duración de la mantenida, sin dejar que vuelvan a posición neutra. Errores comunes: relajar la rotación externa a mitad de la serie."},
     {id:"ani_dip_rango_completo", name:"Fondos en anillas (rango completo)", level:"Avanzado", progressesTo:"ani_muscle_up_banda", desc:"Bajada hasta 90° de codo con anillas estables.", photo:null, videoData:null, equipment:["Anillas"], howTo:"Posición inicial: soporte en anillas con brazos extendidos, anillas rotadas hacia fuera. Ejecución: baja controlando la rotación de las anillas hasta unos 90° de flexión de codo, manteniendo los codos cerca del cuerpo, y empuja de vuelta arriba rotando las anillas de nuevo hacia fuera. Errores comunes: bajar sin control por la inestabilidad de las anillas, y no completar la rotación de las anillas en la parte alta."},
     {id:"ani_muscle_up_banda", name:"Muscle-up con banda", level:"Avanzado", progressesTo:"ani_muscle_up_negativo", desc:"Asistencia elástica para automatizar la transición.", photo:null, videoData:null, equipment:["Anillas","Banda elástica"], howTo:"Posición inicial: cuelga de las anillas con una banda elástica anclada por encima y pasada bajo un pie o rodilla para asistir la transición. Ejecución: tira explosivamente llevando el pecho por encima de las anillas mientras la banda asiste el momento crítico de la transición, y termina en soporte con brazos extendidos. Errores comunes: depender demasiado de la banda sin trabajar la fuerza de tracción real, y no practicar la transición sin banda de forma progresiva."},
@@ -834,7 +853,7 @@ const DB = {
   ],
   "Dinámicos": [
     {id:"din_jumping_jacks", name:"Jumping jacks", level:"Principiante", progressesTo:"din_burpee", desc:"Salto abriendo brazos y piernas a la vez, calentamiento clásico de cuerpo completo.", photo:null, videoData:null, equipment:[], howTo:"Posición inicial: de pie, brazos a los lados, piernas juntas. Ejecución: salta abriendo piernas y elevando los brazos por encima de la cabeza a la vez, y salta de nuevo para volver a la posición inicial, a ritmo constante. Errores comunes: perder la coordinación entre brazos y piernas."},
-    {id:"din_burpee", name:"Burpee", level:"Principiante", progressesTo:"din_salto_caja", desc:"Patrón completo de cuerpo, base de acondicionamiento.", photo:null, videoData:null, equipment:[], howTo:"Posición inicial: de pie, pies a la anchura de hombros. Ejecución: agáchate llevando las manos al suelo, salta los pies hacia atrás a posición de plancha, realiza una flexión (opcional), vuelve a llevar los pies hacia las manos, y salta explosivamente hacia arriba con los brazos extendidos. Errores comunes: arquear la espalda al saltar los pies hacia atrás, y perder la técnica de flexión por la fatiga acumulada."},
+    {id:"din_burpee", name:"Burpee", level:"Principiante", progressesTo:"din_salto_caja", desc:"Patrón completo de cuerpo, base de acondicionamiento.", photo:null, videoData:null, youtubeId:"bTh6KWfW-r8", equipment:[], howTo:"Posición inicial: de pie, pies a la anchura de hombros. Ejecución: agáchate llevando las manos al suelo, salta los pies hacia atrás a posición de plancha, realiza una flexión (opcional), vuelve a llevar los pies hacia las manos, y salta explosivamente hacia arriba con los brazos extendidos. Errores comunes: arquear la espalda al saltar los pies hacia atrás, y perder la técnica de flexión por la fatiga acumulada."},
     {id:"din_salto_caja", name:"Salto a caja", level:"Intermedio", progressesTo:"din_salto_caja_una_pierna", desc:"Extensión triple explosiva, recepción controlada.", photo:null, videoData:null, equipment:["Caja pliométrica"], howTo:"Posición inicial: de pie frente a una caja o cajón a una altura manejable, pies a la anchura de hombros. Ejecución: flexiona cadera y rodillas para generar impulso, salta llevando ambos pies sobre la caja a la vez, y aterriza suave con las rodillas ligeramente flexionadas. Errores comunes: elegir una caja demasiado alta y aterrizar con las rodillas colapsadas, y bajar saltando de la caja en vez de bajar caminando (mayor riesgo de lesión)."},
     {id:"din_salto_caja_una_pierna", name:"Salto a caja a una pierna", level:"Avanzado", progressesTo:"din_flexion_explosiva", desc:"Despegue y recepción con una sola pierna, mucha mayor exigencia de estabilidad.", photo:null, videoData:null, equipment:["Caja pliométrica"], howTo:"Posición inicial: de pie sobre una pierna frente a una caja de altura moderada. Ejecución: impulsa con esa pierna llevando el pie sobre la caja, y aterriza suave sobre la misma pierna con la rodilla ligeramente flexionada. Errores comunes: usar una caja demasiado alta antes de dominar la estabilidad a una pierna."},
     {id:"din_flexion_explosiva", name:"Flexión explosiva (clap opcional)", level:"Intermedio", progressesTo:"din_flexion_explosiva_palmada", desc:"Despegue de manos del suelo en la fase concéntrica.", photo:null, videoData:null, equipment:[], howTo:"Posición inicial: plancha alta como en la flexión estándar. Ejecución: baja con control y empuja explosivamente para que las manos se despeguen del suelo en la fase concéntrica, aterrizando de forma suave con los codos ligeramente flexionados para amortiguar. Errores comunes: intentarlo sin dominar antes la flexión estándar con buena técnica, y aterrizar con los brazos totalmente rígidos."},
@@ -887,7 +906,7 @@ const DB = {
     {id:"free_back_lever_tuck", name:"Back lever tuck", level:"Intermedio", progressesTo:"free_back_lever_adv", desc:"Colgado boca abajo, rodillas al pecho, hombros en rotación externa.", photo:null, videoData:null, equipment:["Barra de dominadas"], howTo:"Posición inicial: agarre en pronación por detrás de la cabeza (agarre invertido), cuelga con los brazos extendidos. Ejecución: rota el cuerpo hacia atrás hasta quedar boca abajo con las rodillas recogidas hacia el pecho, espalda paralela al suelo. Errores comunes: no rotar completamente el hombro a la posición necesaria, y dejar que la cadera cuelgue hacia abajo.", hold:true},
     {id:"free_back_lever_adv", name:"Back lever avanzado (adv tuck)", level:"Avanzado", progressesTo:"free_back_lever_straddle", desc:"Piernas semi-extendidas boca abajo, paso intermedio antes del straddle.", photo:null, videoData:null, equipment:["Barra de dominadas"], howTo:"Posición inicial: agarre invertido, cuelga con los brazos extendidos. Ejecución: extiende las piernas parcialmente manteniendo la cadera abierta y el cuerpo casi horizontal boca abajo. Errores comunes: dejar que la cadera se doble al extender las piernas."},
     {id:"free_back_lever_straddle", name:"Back lever straddle", level:"Avanzado", progressesTo:"free_back_lever_full", desc:"Piernas abiertas en V boca abajo bajo la barra, paso previo al back lever completo.", photo:null, videoData:null, equipment:["Barra de dominadas"], howTo:"Posición inicial: agarre invertido por detrás de la cabeza, cuelga con los brazos extendidos. Ejecución: rota el cuerpo boca abajo extendiendo las piernas abiertas en V, manteniendo la espalda paralela al suelo. Errores comunes: no mantener las piernas realmente abiertas y rectas, y dejar que la cadera cuelgue hacia abajo.", hold:true},
-    {id:"free_back_lever_full", name:"Back lever completo", level:"Élite", progressesTo:"free_victorian", desc:"Cuerpo recto y horizontal, boca abajo bajo la barra.", photo:null, videoData:null, equipment:["Barra de dominadas"], howTo:"Posición inicial: agarre invertido por detrás de la cabeza, cuelga con los brazos extendidos. Ejecución: extiende completamente el cuerpo boca abajo en horizontal bajo la barra, piernas juntas y rectas, sosteniendo la posición con los brazos extendidos. Errores comunes: dejar que la cadera o las piernas caigan perdiendo la horizontal, y no tener suficiente movilidad de hombro para el agarre invertido.", hold:true},
+    {id:"free_back_lever_full", name:"Back lever completo", level:"Élite", progressesTo:"free_victorian", desc:"Cuerpo recto y horizontal, boca abajo bajo la barra.", photo:null, videoData:null, youtubeId:"h3YS-MgNe8E", equipment:["Barra de dominadas"], howTo:"Posición inicial: agarre invertido por detrás de la cabeza, cuelga con los brazos extendidos. Ejecución: extiende completamente el cuerpo boca abajo en horizontal bajo la barra, piernas juntas y rectas, sosteniendo la posición con los brazos extendidos. Errores comunes: dejar que la cadera o las piernas caigan perdiendo la horizontal, y no tener suficiente movilidad de hombro para el agarre invertido.", hold:true},
     {id:"free_victorian", name:"Victorian", level:"Élite", progressesTo:null, desc:"Como el back lever pero con las manos por delante del cuerpo, palanca aún mayor.", photo:null, videoData:null, equipment:["Barra de dominadas"], howTo:"Posición inicial: agarre invertido con las manos más adelantadas que en el back lever. Ejecución: mantén el cuerpo horizontal boca abajo con esa posición de manos más exigente, con máxima tensión de espalda y hombro. Errores comunes: intentarlo sin un back lever completo muy sólido primero."},
     {id:"free_flag_tuck", name:"Bandera humana tuck", level:"Avanzado", progressesTo:"free_flag_adv", desc:"Agarre vertical al poste, rodillas flexionadas cerca de la cadera.", photo:null, videoData:null, equipment:["Poste vertical"], howTo:"Posición inicial: agarra un poste vertical con una mano arriba y la otra más abajo, cuerpo lateral al poste. Ejecución: eleva las caderas y recoge las rodillas hacia el pecho mientras el brazo superior empuja y el inferior tracciona, manteniendo el cuerpo estable en el aire junto al poste. Errores comunes: no activar suficientemente el oblicuo del lado de apoyo, y dejar que la cadera caiga hacia el poste.", hold:true},
     {id:"free_flag_adv", name:"Bandera humana avanzada (una pierna)", level:"Élite", progressesTo:"free_flag_straddle", desc:"Una pierna extendida y la otra flexionada, paso intermedio antes del straddle.", photo:null, videoData:null, equipment:["Poste vertical"], howTo:"Posición inicial: igual que la bandera tuck. Ejecución: extiende una pierna manteniendo la otra flexionada, con el cuerpo estable junto al poste, alternando la pierna extendida entre series. Errores comunes: dejar que la cadera caiga hacia el poste al extender la pierna."},
@@ -1628,6 +1647,97 @@ function computeLevelUpProgress(sessions, currentLevel){
   return { streak, required: SESSIONS_TO_LEVEL_UP, eligible: streak >= SESSIONS_TO_LEVEL_UP };
 }
 
+/**
+ * Racha de días consecutivos con al menos una sesión guardada, terminando
+ * hoy (o ayer si hoy todavía no se ha entrenado — no se rompe la racha solo
+ * por no haber entrenado TODAVÍA en el día en curso). Puro: compara por día
+ * local con toLocalDateKey, no por sesión exacta.
+ */
+function computeStreak(sessions){
+  const trainedDays = new Set(sessions.map(s => toLocalDateKey(s.date)));
+  const cursor = new Date();
+  if(!trainedDays.has(toLocalDateKey(cursor))){
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  let streak = 0;
+  while(trainedDays.has(toLocalDateKey(cursor))){
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+/**
+ * Sistema de rango estilo "ranked" de videojuego (Hierro -> Retador): puntúa
+ * cada ejercicio DISTINTO que se haya dominado alguna vez en el historial
+ * (RPE bajo + todas las series hechas, ver summarizeAttempt), ponderado por
+ * su nivel — dominar un Élite vale mucho más que un Principiante. La suma
+ * se compara contra el máximo teórico de todo el catálogo actual (todo
+ * dominado a Élite) para dar un porcentaje, y ese porcentaje decide el
+ * rango. Los estiramientos no puntúan: no son el eje de "progresión" del
+ * rango, son preparación/recuperación.
+ */
+const RANK_LEVEL_WEIGHT = {Principiante:1, Intermedio:2, Avanzado:4, "Élite":8};
+
+function computeMasteryScore(sessions){
+  const masteredKeys = new Set();
+  let score = 0;
+  sessions.forEach(session=>{
+    (session.exercises||[]).forEach(sEx=>{
+      if(!sEx.family || sEx.family === "Estiramientos") return;
+      const key = `${sEx.family}::${sEx.name}`;
+      if(masteredKeys.has(key)) return;
+      if(!summarizeAttempt(sEx).mastered) return;
+      const ex = findExerciseByName(sEx.family, sEx.name);
+      if(!ex) return;
+      masteredKeys.add(key);
+      score += RANK_LEVEL_WEIGHT[ex.level] || 0;
+    });
+  });
+  return score;
+}
+
+/** Máximo teórico de computeMasteryScore: todo el catálogo actual (sin estiramientos) dominado. Se calcula del catálogo real, nunca hardcodeado, para no desincronizarse si crece. */
+function computeMasteryMaxScore(){
+  let max = 0;
+  FAMILIES.forEach(f => DB[f].forEach(ex => { max += RANK_LEVEL_WEIGHT[ex.level] || 0; }));
+  return max;
+}
+
+/**
+ * Umbrales de rango como fracción del máximo teórico. Progresión no lineal
+ * a propósito: dominar un puñado de ejercicios básicos ya saca de Hierro,
+ * pero llegar a Retador exige haber dominado la inmensa mayoría del
+ * catálogo, Élite incluido — igual que en un ranked real, donde los últimos
+ * tramos son mucho más largos que los primeros.
+ */
+const RANK_TIERS = [
+  {name:"Hierro", min:0},
+  {name:"Bronce", min:0.03},
+  {name:"Plata", min:0.07},
+  {name:"Oro", min:0.13},
+  {name:"Platino", min:0.20},
+  {name:"Esmeralda", min:0.28},
+  {name:"Diamante", min:0.38},
+  {name:"Maestro", min:0.50},
+  {name:"Gran Maestro", min:0.65},
+  {name:"Retador", min:0.80}
+];
+
+/** Rango actual a partir del historial, más el nombre del siguiente rango (o null si ya es el máximo). Puro. */
+function computeRank(sessions){
+  const score = computeMasteryScore(sessions);
+  const max = computeMasteryMaxScore();
+  const ratio = max > 0 ? score / max : 0;
+  let current = RANK_TIERS[0];
+  let next = null;
+  for(let i=0; i<RANK_TIERS.length; i++){
+    if(ratio >= RANK_TIERS[i].min) current = RANK_TIERS[i];
+    else { next = RANK_TIERS[i]; break; }
+  }
+  return { name: current.name, score, max, ratio, next: next ? next.name : null };
+}
+
 const REST_SECONDS = 75;
 // Colchón fijo de transición/preparación (coger material, ajustar barra...).
 // El calentamiento en sí ya se cuenta como tiempo real vía los estiramientos
@@ -2040,12 +2150,19 @@ function switchView(view){
   document.getElementById("todayDate").style.display = view==="dashboard" ? "flex" : "none";
 }
 
-/** Fecha de hoy en español ("Sábado, 7 de septiembre"), se ve en el dashboard nada más entrar. */
+/**
+ * Fecha y hora de hoy en español ("Sábado, 7 de septiembre · 18:24"), se ve
+ * en el dashboard nada más entrar. La hora se refresca sola cada minuto
+ * (setInterval en bootstrap) para que no se quede clavada en la hora a la
+ * que se abrió la app si la dejas abierta un rato.
+ */
 function renderTodayDate(){
   const el = document.getElementById("todayDate");
   if(!el) return;
-  const formatted = new Intl.DateTimeFormat("es-ES", {weekday:"long", day:"numeric", month:"long"}).format(new Date());
-  el.textContent = formatted.charAt(0).toUpperCase() + formatted.slice(1);
+  const now = new Date();
+  const formattedDate = new Intl.DateTimeFormat("es-ES", {weekday:"long", day:"numeric", month:"long"}).format(now);
+  const formattedTime = new Intl.DateTimeFormat("es-ES", {hour:"2-digit", minute:"2-digit"}).format(now);
+  el.textContent = `${formattedDate.charAt(0).toUpperCase() + formattedDate.slice(1)} · ${formattedTime}`;
 }
 
 const WEEK_DAY_LETTERS = ["L","M","X","J","V","S","D"];
@@ -2091,6 +2208,45 @@ function renderWeekStrip(){
     cell.innerHTML = `<div class="day-label">${WEEK_DAY_LETTERS[i]}</div><div class="day-dot">${trained ? "✓" : d.getDate()}</div>`;
     el.appendChild(cell);
   }
+
+  renderStreak();
+  renderRankBadge();
+}
+
+/** Racha de días seguidos entrenando, con la llamita solo activa (color) si la racha sigue viva (>=1). */
+function renderStreak(){
+  const el = document.getElementById("streakLine");
+  if(!el) return;
+  const streak = computeStreak(AppState.sessions);
+  el.classList.toggle("active", streak > 0);
+  el.innerHTML = streak > 0
+    ? `<span class="flame">🔥</span> ${streak} día${streak===1 ? "" : "s"} seguido${streak===1 ? "" : "s"}`
+    : `<span class="flame">🔥</span> Empieza hoy tu racha`;
+}
+
+/** Pastilla de rango (estilo ranked) en el header, junto a la de nivel. Se recalcula con cada cambio de historial. */
+function renderRankBadge(){
+  const el = document.getElementById("rankBadge");
+  if(!el) return;
+  const rank = computeRank(AppState.sessions);
+  el.textContent = `🏆 ${rank.name}`;
+}
+
+/** Modal informativo del rango: qué es, puntuación actual y qué falta para el siguiente. */
+function openRankModal(){
+  const modal = document.getElementById("rankModal");
+  const body = document.getElementById("rankModalBody");
+  const rank = computeRank(AppState.sessions);
+  const pct = Math.round(rank.ratio * 100);
+  body.innerHTML = `
+    <div class="report-title">🏆 Rango: ${rank.name}</div>
+    <p class="report-line">El rango sube según ejercicios DISTINTOS que hayas dominado alguna vez (series completas y RPE bajo), ponderados por nivel — un Élite pesa mucho más que un Principiante. Los estiramientos no cuentan.</p>
+    <div class="report-line"><strong>${pct}%</strong> del catálogo dominado (${rank.score} de ${rank.max} puntos posibles).</div>
+    ${rank.next ? `<div class="report-line">Siguiente rango: <strong>${rank.next}</strong>.</div>` : `<div class="report-line"><strong>¡Rango máximo alcanzado!</strong></div>`}
+    <button class="btn btn-primary btn-block" id="btnCloseRank" style="margin-top:14px;">Entendido</button>
+  `;
+  modal.style.display = "flex";
+  document.getElementById("btnCloseRank").addEventListener("click", ()=>{ modal.style.display = "none"; });
 }
 
 function initNavigation(){
@@ -2168,10 +2324,20 @@ function renderPlan(){
     head.appendChild(actions);
     card.appendChild(head);
 
+    if(ex.desc){
+      const descEl = document.createElement("div");
+      descEl.className = "plan-desc";
+      descEl.textContent = ex.desc;
+      card.appendChild(descEl);
+    }
+
     const quickImgWrap = document.createElement("div");
     quickImgWrap.className = "quick-img-wrap";
     const photo = resolveExercisePhoto(ex);
-    quickImgWrap.innerHTML = `<img src="${photo.src}" alt="Ilustración de ${ex.name}" loading="lazy">`;
+    quickImgWrap.innerHTML = `
+      <img src="${photo.src}" alt="Ilustración de ${ex.name}" loading="lazy">
+      ${ex.howTo ? `<div class="plan-howto"><strong>Cómo hacerlo:</strong> ${ex.howTo}</div>` : ""}
+    `;
     imgBtn.addEventListener("click", ()=>{
       const open = quickImgWrap.classList.toggle("open");
       imgBtn.classList.toggle("on", open);
@@ -2236,43 +2402,24 @@ function renderRecoSummary(dayLabel, lines){
   `;
 }
 
-/** Cáscara imperativa: llama al núcleo puro (planner.js) y aplica el resultado. */
-/** Muestra el selector de familia; la generación real ocurre en runRecommendedWorkoutFor(). */
-function openFamilyPicker(){
-  const panel = document.getElementById("familyPickerPanel");
-  const chipsBox = document.getElementById("familyPickerChips");
-  chipsBox.innerHTML = "";
-
-  const options = [...FAMILIES, "Cuerpo completo"];
-  options.forEach(label=>{
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "chip";
-    chip.textContent = label;
-    chip.addEventListener("click", ()=>{
-      panel.style.display = "none";
-      runRecommendedWorkoutFor(label);
-    });
-    chipsBox.appendChild(chip);
-  });
-
-  panel.style.display = panel.style.display === "none" ? "block" : "none";
-}
-
-/** Cáscara imperativa: resuelve qué familias usar según la elección, llama al núcleo puro y aplica el resultado. */
-function runRecommendedWorkoutFor(choice){
+/**
+ * Cáscara imperativa: genera el entreno recomendado de hoy directamente a
+ * partir del historial completo, sin pedir qué familia entrenar primero.
+ * Antes se mostraba un selector de familia (7 chips + "Cuerpo completo")
+ * delante del botón "Generar Entreno Recomendado", lo que dejaba elegir
+ * cualquier familia a mano y llamarlo igualmente "recomendado" sin que
+ * tuviera relación real con el historial. Si lo que se quiere es elegir a
+ * mano qué entrenar, para eso está la tarjeta "Añadir ejercicio" de abajo;
+ * este botón siempre usa pickSmartFamilyCombo() (descanso por historial,
+ * o repetir si toca continuar una progresión recién dominada).
+ */
+function runRecommendedWorkout(){
   if(AppState.todayPlan.length>0){
     if(!confirm("Esto sustituirá el entreno actual de hoy por la recomendación automática. ¿Continuar?")) return;
   }
-  // La combinación inteligente (mira qué se entrenó ayer y da descanso a eso,
-  // salvo que convenga repetir para seguir una progresión recién dominada)
-  // solo aplica a "Cuerpo completo": si elegiste una única familia concreta,
-  // se respeta tal cual, sin sustituirla por otra cosa.
-  const smartCombo = choice === "Cuerpo completo" ? pickSmartFamilyCombo(AppState.sessions) : null;
-  const families = smartCombo ? smartCombo.families : [choice];
-
-  const plan = buildRecommendedPlan(AppState.sessions, families, AppState.userLevel || "Principiante");
-  if(smartCombo && smartCombo.continuesProgression){
+  const smartCombo = pickSmartFamilyCombo(AppState.sessions);
+  const plan = buildRecommendedPlan(AppState.sessions, smartCombo.families, AppState.userLevel || "Principiante");
+  if(smartCombo.continuesProgression){
     plan.summaryLines.unshift(`<em>Se repite ${smartCombo.continuesProgression} porque dominaste su último ejercicio — conviene consolidar antes de subir de peldaño.</em>`);
   }
   AppState.todayPlan = plan.planItems;
@@ -2338,6 +2485,7 @@ function renderLevelOnboardingBanner(){
 
 function initLevelOnboarding(){
   document.getElementById("btnUserLevel").addEventListener("click", openLevelModal);
+  document.getElementById("rankBadge").addEventListener("click", openRankModal);
   document.getElementById("btnDismissLevelBanner").addEventListener("click", ()=>{
     AppState.levelBannerDismissed = true;
     persistLevelBannerDismissed();
@@ -2467,7 +2615,7 @@ function initDashboardEvents(){
     }
   });
 
-  document.getElementById("btnGenerateWorkout").addEventListener("click", openFamilyPicker);
+  document.getElementById("btnGenerateWorkout").addEventListener("click", runRecommendedWorkout);
 }
 
 /**
@@ -2715,7 +2863,7 @@ function renderHistory(){
         ${session.exercises.map(ex => `
           <div class="hist-ex-line">
             <span>${ex.name}</span>
-            <span>${ex.sets.map(s=>`${s.reps}${s.rpe?` (RPE ${s.rpe})`:""}`).join(", ")}</span>
+            <span>${ex.sets.map(s=>`${s.reps}${s.rpe?`/${s.rpe}`:""}`).join(", ")}</span>
           </div>
         `).join("")}
         ${session.notes ? `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--line);">${escapeHtml(session.notes)}</div>` : ""}
@@ -2781,6 +2929,7 @@ function initInfoTips(){
   renderHistory();
   renderTodayDate();
   renderWeekStrip();
+  setInterval(renderTodayDate, 60000);
 })();
 
 /* ======================================================================
@@ -3349,6 +3498,78 @@ function runUnitTests(){
     const report = buildSessionReport(session);
     _assertTrue(report.recommendation.includes("Dominada estricta"), "la recomendación debería nombrar el ejercicio concreto");
     _assertTrue(!report.recommendation.includes("Remo invertido"), "no debería culpar al ejercicio que no se mencionó");
+  });
+  _groupEnd();
+
+  _groupCollapsed("6) Racha, rango y recomendación sin selector manual");
+  test("computeStreak() da 0 sin historial", () => {
+    _assertEqual(computeStreak([]), 0);
+  });
+  test("computeStreak() cuenta días consecutivos incluyendo hoy", () => {
+    const today = new Date(), yesterday = new Date(), twoAgo = new Date();
+    yesterday.setDate(today.getDate()-1); twoAgo.setDate(today.getDate()-2);
+    const sessions = [today, yesterday, twoAgo].map(d => ({date: d.toISOString(), exercises:[]}));
+    _assertEqual(computeStreak(sessions), 3);
+  });
+  test("computeStreak() no se rompe si hoy aún no se ha entrenado pero ayer sí", () => {
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate()-1);
+    _assertEqual(computeStreak([{date: yesterday.toISOString(), exercises:[]}]), 1);
+  });
+  test("computeStreak() se corta si hay un hueco de un día", () => {
+    const today = new Date(), threeAgo = new Date();
+    threeAgo.setDate(today.getDate()-3);
+    const sessions = [today, threeAgo].map(d => ({date: d.toISOString(), exercises:[]}));
+    _assertEqual(computeStreak(sessions), 1);
+  });
+  test("computeMasteryScore() puntúa cada ejercicio distinto dominado una sola vez, ponderado por nivel", () => {
+    const ex = findExercise("emp_flexion_estandar"); // Principiante -> peso 1
+    const sessions = [
+      {exercises:[{name:ex.name, family:ex.family, sets:[{reps:12,done:true,rpe:5}]}]},
+      {exercises:[{name:ex.name, family:ex.family, sets:[{reps:12,done:true,rpe:5}]}]} // repetido, no debe sumar dos veces
+    ];
+    _assertEqual(computeMasteryScore(sessions), RANK_LEVEL_WEIGHT["Principiante"]);
+  });
+  test("computeMasteryScore() ignora estiramientos y ataques no dominados", () => {
+    const sessions = [{exercises:[
+      {name:"Círculos de brazos", family:"Estiramientos", sets:[{reps:20,done:true,rpe:1}]},
+      {name:"Flexiones estándar", family:"Empuje", sets:[{reps:12,done:true,rpe:9}]} // RPE alto, no dominado
+    ]}];
+    _assertEqual(computeMasteryScore(sessions), 0);
+  });
+  test("computeMasteryMaxScore() es positivo y coincide con sumar el peso de todo el catálogo", () => {
+    let expected = 0;
+    FAMILIES.forEach(f => DB[f].forEach(ex => { expected += RANK_LEVEL_WEIGHT[ex.level] || 0; }));
+    _assertEqual(computeMasteryMaxScore(), expected);
+    _assertTrue(computeMasteryMaxScore() > 0);
+  });
+  test("RANK_TIERS está ordenado de forma estrictamente creciente y empieza en 0", () => {
+    _assertEqual(RANK_TIERS[0].min, 0);
+    for(let i=1; i<RANK_TIERS.length; i++){
+      _assertTrue(RANK_TIERS[i].min > RANK_TIERS[i-1].min, `${RANK_TIERS[i].name} debería tener un umbral mayor que ${RANK_TIERS[i-1].name}`);
+    }
+  });
+  test("computeRank() da Hierro con siguiente rango cuando no hay historial, y ratio 0", () => {
+    const rank = computeRank([]);
+    _assertEqual(rank.name, "Hierro");
+    _assertEqual(rank.ratio, 0);
+    _assertTrue(!!rank.next);
+  });
+  test("computeRank() llega a Retador (rango máximo) si se domina el catálogo entero", () => {
+    const allExercises = [];
+    FAMILIES.forEach(f => DB[f].forEach(ex => allExercises.push({name:ex.name, family:f, sets:[{reps:5, done:true, rpe:5}]})));
+    const rank = computeRank([{exercises: allExercises}]);
+    _assertEqual(rank.ratio, 1);
+    _assertEqual(rank.name, "Retador");
+    _assertEqual(rank.next, null);
+  });
+  test("runRecommendedWorkout() genera un plan directamente en AppState.todayPlan sin selector de familia intermedio", () => {
+    _assertTrue(document.getElementById("familyPickerPanel") === null, "el selector de familia manual ya no debería existir en el DOM");
+    withSandboxedState(() => {
+      AppState.sessions = [];
+      AppState.todayPlan = [];
+      runRecommendedWorkout();
+      _assertTrue(AppState.todayPlan.length > 0, "debería rellenar el plan de hoy");
+    });
   });
   _groupEnd();
 
