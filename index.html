@@ -4573,7 +4573,22 @@ if("serviceWorker" in navigator && (location.protocol === "https:" || location.h
     location.reload();
   });
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch((err) => console.warn("SW registration failed:", err));
+    // updateViaCache:"none" evita que el navegador compare sw.js contra su
+    // propia copia en caché HTTP al buscar actualizaciones (algo que en la
+    // práctica ha dado problemas en Safari/iOS) — obliga a pedir el archivo
+    // de verdad por red cada vez que se comprueba si hay versión nueva.
+    navigator.serviceWorker.register("sw.js", {updateViaCache: "none"}).then((registration) => {
+      // Reabrir una PWA instalada desde la pantalla de inicio en iOS a veces
+      // solo "reanuda" el proceso en vez de recargar el documento de verdad,
+      // así que el navegador puede tardar mucho en comprobar por su cuenta
+      // si hay una versión nueva de sw.js — y hasta entonces la app se queda
+      // congelada en la versión con la que se abrió por primera vez, aunque
+      // se cierre y reabra muchas veces. Forzar la comprobación cada vez que
+      // la app vuelve a primer plano hace que se autoactualice mucho más rápido.
+      document.addEventListener("visibilitychange", () => {
+        if(document.visibilityState === "visible") registration.update().catch(()=>{});
+      });
+    }).catch((err) => console.warn("SW registration failed:", err));
   });
 }
 </script>
