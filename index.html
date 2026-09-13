@@ -215,6 +215,9 @@
   .week-strip .day-cell.today .day-dot{border-color:var(--accent-2); color:var(--accent-2); box-shadow:0 0 0 3px rgba(34,211,238,.16);}
   .week-strip .day-cell.trained .day-dot{background:var(--accent-gradient); border-color:transparent; color:#fff; box-shadow:0 4px 12px -6px rgba(76,141,255,.6);}
   .week-strip .day-cell.future .day-dot{opacity:.45;}
+  .week-strip .day-cell.rest .day-dot{background:rgba(148,163,184,.18); border-color:rgba(148,163,184,.5);}
+  .week-strip .day-cell.toggleable{cursor:pointer;}
+  .week-strip .day-cell.toggleable:active .day-dot{transform:scale(.92);}
 
   /* ---------- Tooltips de ayuda (icono "i" táctil) ---------- */
   .info-tip{position:relative; display:inline-flex; align-items:center; flex-shrink:0;}
@@ -312,6 +315,8 @@
   }
   .rank-hero-name{font-family:var(--ff-display); font-size:26px; font-weight:800; letter-spacing:.3px;}
   .rank-hero-stats{color:var(--text-dim); font-size:13.5px; margin-top:10px;}
+  .rank-progress-track{width:100%; max-width:280px; height:10px; border-radius:999px; background:var(--surface-2); margin-top:14px; overflow:hidden;}
+  .rank-progress-fill{height:100%; border-radius:999px; transition:width .5s ease;}
   .rank-hero-next{color:var(--text-dim); font-size:13px; margin-top:6px;}
   .rank-hero-next strong{color:var(--accent-2);}
   .rank-tiers-toggle{
@@ -1494,7 +1499,8 @@ const STORE_KEYS = {
   sessions: "cal_sessions",
   muscleup: "cal_muscleup_logs",
   userLevel: "cal_user_level",
-  levelBannerDismissed: "cal_level_banner_dismissed"
+  levelBannerDismissed: "cal_level_banner_dismissed",
+  restDays: "cal_rest_days"
 };
 
 function loadJSON(key, fallback){
@@ -1519,7 +1525,11 @@ const AppState = {
   // null = todavía no se ha respondido la pregunta de nivel de partida (dispara el onboarding)
   userLevel: loadJSON(STORE_KEYS.userLevel, null),
   // true = el usuario cerró la tarjeta de onboarding de nivel sin elegir uno; no se le vuelve a insistir
-  levelBannerDismissed: loadJSON(STORE_KEYS.levelBannerDismissed, false)
+  levelBannerDismissed: loadJSON(STORE_KEYS.levelBannerDismissed, false),
+  // Días (AAAA-MM-DD, hora local) marcados a mano como "descanso" — cuentan
+  // para no romper la racha aunque no haya sesión guardada ese día, pero
+  // nunca como sesión real (no suman a los logros de nº de sesiones).
+  restDays: loadJSON(STORE_KEYS.restDays, [])
 };
 
 function persistPlan(){ saveJSON(STORE_KEYS.plan, AppState.todayPlan); }
@@ -1528,6 +1538,7 @@ function persistMuscleLogs(){ saveJSON(STORE_KEYS.muscleup, AppState.muscleLogs)
 function persistNotes(){ saveJSON(STORE_KEYS.notes, AppState.sessionNotes); }
 function persistLevelBannerDismissed(){ saveJSON(STORE_KEYS.levelBannerDismissed, AppState.levelBannerDismissed); }
 function persistUserLevel(){ saveJSON(STORE_KEYS.userLevel, AppState.userLevel); }
+function persistRestDays(){ saveJSON(STORE_KEYS.restDays, AppState.restDays); }
 
 /**
  * planner.js — Motor de recomendación (Business Logic Layer)
@@ -1708,19 +1719,26 @@ function computeLevelUpProgress(sessions, currentLevel){
 }
 
 /**
- * Racha de días consecutivos con al menos una sesión guardada, terminando
- * hoy (o ayer si hoy todavía no se ha entrenado — no se rompe la racha solo
- * por no haber entrenado TODAVÍA en el día en curso). Puro: compara por día
- * local con toLocalDateKey, no por sesión exacta.
+ * Racha de días consecutivos "activos" — con al menos una sesión guardada,
+ * O marcados a mano como día de descanso (restDays) — terminando hoy (o
+ * ayer si hoy todavía no se ha hecho nada — no se rompe la racha solo por
+ * no haber entrenado TODAVÍA en el día en curso). Un día de descanso
+ * planificado (p. ej. cardio suave o descanso real dentro de un split de
+ * 4 días de entreno / 3 de descanso) cuenta para mantener la racha viva,
+ * pero nunca como sesión real: no suma a los logros por número de
+ * sesiones, solo a la constancia de "seguir el plan". Puro: compara por
+ * día local con toLocalDateKey, no por sesión exacta.
  */
-function computeStreak(sessions){
+function computeStreak(sessions, restDays){
   const trainedDays = new Set(sessions.map(s => toLocalDateKey(s.date)));
+  const restSet = new Set(restDays || []);
+  const isActiveDay = (key) => trainedDays.has(key) || restSet.has(key);
   const cursor = new Date();
-  if(!trainedDays.has(toLocalDateKey(cursor))){
+  if(!isActiveDay(toLocalDateKey(cursor))){
     cursor.setDate(cursor.getDate() - 1);
   }
   let streak = 0;
-  while(trainedDays.has(toLocalDateKey(cursor))){
+  while(isActiveDay(toLocalDateKey(cursor))){
     streak++;
     cursor.setDate(cursor.getDate() - 1);
   }
@@ -1929,9 +1947,9 @@ const ACHIEVEMENTS = [
   { id:"sessions_10", name:"Constancia", desc:"Guarda 10 sesiones.", rarity:"Común", difficulty:0.45, check:(s)=> s.length >= 10 },
   { id:"sessions_50", name:"Hábito de hierro", desc:"Guarda 50 sesiones.", rarity:"Poco común", difficulty:0.18, check:(s)=> s.length >= 50 },
   { id:"sessions_100", name:"Veterano", desc:"Guarda 100 sesiones.", rarity:"Raro", difficulty:0.07, check:(s)=> s.length >= 100 },
-  { id:"streak_3", name:"Encendiendo la llama", desc:"Entrena 3 días seguidos.", rarity:"Común", difficulty:0.40, check:(s)=> computeStreak(s) >= 3 },
-  { id:"streak_7", name:"Una semana entera", desc:"Entrena 7 días seguidos.", rarity:"Poco común", difficulty:0.15, check:(s)=> computeStreak(s) >= 7 },
-  { id:"streak_30", name:"Racha imparable", desc:"Entrena 30 días seguidos.", rarity:"Épico", difficulty:0.02, check:(s)=> computeStreak(s) >= 30 },
+  { id:"streak_3", name:"Encendiendo la llama", desc:"Mantén la racha 3 días seguidos (entrenando o marcando descanso).", rarity:"Común", difficulty:0.40, check:(s,m,r)=> computeStreak(s,r) >= 3 },
+  { id:"streak_7", name:"Una semana entera", desc:"Mantén la racha 7 días seguidos (entrenando o marcando descanso).", rarity:"Poco común", difficulty:0.15, check:(s,m,r)=> computeStreak(s,r) >= 7 },
+  { id:"streak_30", name:"Racha imparable", desc:"Mantén la racha 30 días seguidos (entrenando o marcando descanso).", rarity:"Épico", difficulty:0.02, check:(s,m,r)=> computeStreak(s,r) >= 30 },
   { id:"first_mastery", name:"Primer dominio", desc:"Domina un ejercicio por primera vez (series completas y RPE bajo).", rarity:"Común", difficulty:0.55, check:(s)=> getMasteredExerciseSet(s).size >= 1 },
   { id:"master_advanced", name:"Subiendo el listón", desc:"Domina un ejercicio de nivel Avanzado.", rarity:"Poco común", difficulty:0.20, check:(s)=> hasMasteredLevel(s, "Avanzado") },
   { id:"master_elite", name:"Nivel élite", desc:"Domina un ejercicio de nivel Élite.", rarity:"Raro", difficulty:0.06, check:(s)=> hasMasteredLevel(s, "Élite") },
@@ -1947,8 +1965,8 @@ const ACHIEVEMENTS = [
   { id:"rank_diamante", name:"Rango Diamante", desc:"Alcanza el rango Diamante.", rarity:"Épico", difficulty:0.03, check:(s)=> computeRank(s).ratio >= 0.38 },
   { id:"rank_challenger", name:"Retador", desc:"Alcanza el rango máximo: prácticamente todo el catálogo dominado.", rarity:"Legendario", difficulty:0.001, check:(s)=> computeRank(s).ratio >= 0.80 },
   { id:"muscleup_clean", name:"Primer muscle-up limpio", desc:"Registra un muscle-up con ejecución limpia en el apartado Muscle-Up.", rarity:"Raro", difficulty:0.08, check:(s, m)=> (m||[]).some(entry => entry.quality === "Limpio") },
-  { id:"streak_14", name:"Dos semanas de fuego", desc:"Entrena 14 días seguidos.", rarity:"Raro", difficulty:0.08, check:(s)=> computeStreak(s) >= 14 },
-  { id:"streak_100", name:"Leyenda de la constancia", desc:"Entrena 100 días seguidos.", rarity:"Legendario", difficulty:0.005, check:(s)=> computeStreak(s) >= 100 },
+  { id:"streak_14", name:"Dos semanas de fuego", desc:"Mantén la racha 14 días seguidos (entrenando o marcando descanso).", rarity:"Raro", difficulty:0.08, check:(s,m,r)=> computeStreak(s,r) >= 14 },
+  { id:"streak_100", name:"Leyenda de la constancia", desc:"Mantén la racha 100 días seguidos (entrenando o marcando descanso).", rarity:"Legendario", difficulty:0.005, check:(s,m,r)=> computeStreak(s,r) >= 100 },
   { id:"sessions_250", name:"Imparable", desc:"Guarda 250 sesiones.", rarity:"Legendario", difficulty:0.01, check:(s)=> s.length >= 250 },
   { id:"mastered_10", name:"Colección creciente", desc:"Domina 10 ejercicios distintos alguna vez.", rarity:"Poco común", difficulty:0.22, check:(s)=> getMasteredExerciseSet(s).size >= 10 },
   { id:"mastered_25", name:"Amplio dominio", desc:"Domina 25 ejercicios distintos alguna vez.", rarity:"Raro", difficulty:0.09, check:(s)=> getMasteredExerciseSet(s).size >= 25 },
@@ -1966,8 +1984,8 @@ const ACHIEVEMENTS = [
 ];
 
 /** Devuelve ACHIEVEMENTS con un booleano `unlocked` por cada uno, a partir del historial actual. Puro. */
-function computeAchievements(sessions, muscleLogs){
-  return ACHIEVEMENTS.map(a => ({ ...a, unlocked: a.check(sessions, muscleLogs) }));
+function computeAchievements(sessions, muscleLogs, restDays){
+  return ACHIEVEMENTS.map(a => ({ ...a, unlocked: a.check(sessions, muscleLogs, restDays) }));
 }
 
 const REST_SECONDS = 75;
@@ -2160,16 +2178,20 @@ function buildRecommendedPlan(sessions, families, userLevel="Principiante"){
   const planItems = [];
   const summaryLines = [];
   if(complementFamily){
-    summaryLines.push(`<em>Se añade ${complementFamily} para no entrenar un solo patrón de movimiento — un entreno equilibrado combina empujes con tirones o core, no uno solo.</em>`);
+    summaryLines.push(`<em>Se añade ${complementFamily} para no entrenar un solo patrón de movimiento — un entreno equilibrado combina empujes con tirones o core, no uno solo. Cada familia descansa al menos 48-72h desde la última vez antes de repetirse, el rango que recomienda la NSCA para recuperar fuerza sin perder frecuencia.</em>`);
   }
 
   // Estiramientos de calentamiento (dinámicos) y enfriamiento (estáticos),
   // elegidos según los grupos musculares de las familias de hoy — nunca un
   // calentamiento genérico, siempre relacionado con lo que se va a entrenar.
+  // El porqué de que sea dinámico y no estático: mantener quieto un
+  // estiramiento en frío antes de entrenar puede restar fuerza a la sesión;
+  // ACSM y NASM recomiendan mover en el calentamiento y reservar el
+  // estiramiento estático para después.
   const { warmup: warmupStretches, cooldown: cooldownStretches } = pickStretchesForFamilies(effectiveFamilies);
   if(warmupStretches.length){
     warmupStretches.forEach(s => planItems.push({ exId: s.id, sets: makeSets(1, 20) }));
-    summaryLines.push(`<em>Calentamiento (antes de empezar): ${warmupStretches.map(s=>s.name).join(", ")}.</em>`);
+    summaryLines.push(`<em>Calentamiento dinámico (antes de empezar): ${warmupStretches.map(s=>s.name).join(", ")} — en movimiento, no estirando quieto, para no restar fuerza a la sesión (ACSM/NASM).</em>`);
   }
 
   // Si Freestyle ya está entre las familias de hoy, más abajo no se añade el
@@ -2203,8 +2225,10 @@ function buildRecommendedPlan(sessions, families, userLevel="Principiante"){
   }
 
   if(cooldownStretches.length){
-    cooldownStretches.forEach(s => planItems.push({ exId: s.id, sets: makeSets(1, 30) }));
-    summaryLines.push(`<em>Estiramientos finales (al terminar): ${cooldownStretches.map(s=>s.name).join(", ")} — mantén cada uno sin rebotar.</em>`);
+    // 2 series por estiramiento en vez de 1: la ACSM recomienda mantener cada
+    // estiramiento estático 15-30 seg y repetirlo 2-4 veces, no una sola.
+    cooldownStretches.forEach(s => planItems.push({ exId: s.id, sets: makeSets(2, 25) }));
+    summaryLines.push(`<em>Estiramientos finales, estáticos (al terminar): ${cooldownStretches.map(s=>s.name).join(", ")} — 2 series de ~25 seg cada uno sin rebotar, ayuda a la recuperación (ACSM).</em>`);
   }
 
   const estimatedMinutes = estimateMinutes(planItems);
@@ -2419,6 +2443,10 @@ function toLocalDateKey(dateOrIso){
  * guardó una sesión y resaltando el día de hoy. Lee AppState.sessions
  * (campo `date`, ISO) — no necesita datos nuevos ni un componente de
  * calendario completo para responder "¿qué día es y qué llevo esta semana?".
+ * Los días sin sesión (hoy o cualquier día ya pasado de esta semana, nunca
+ * uno futuro) se pueden marcar a mano como "descanso" tocándolos — para
+ * splits tipo 4 días de entreno / 3 de descanso, donde el descanso es parte
+ * del plan y no debería romper la racha (ver computeStreak).
  */
 function renderWeekStrip(){
   const el = document.getElementById("weekStrip");
@@ -2429,17 +2457,30 @@ function renderWeekStrip(){
   const monday = new Date(today);
   monday.setDate(today.getDate() - todayIdx);
   const trainedDates = new Set(AppState.sessions.map(s => toLocalDateKey(s.date)));
+  const restDates = new Set(AppState.restDays);
 
   el.innerHTML = "";
   for(let i=0; i<7; i++){
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
+    const dateKey = toLocalDateKey(d);
     const isToday = i === todayIdx;
     const isFuture = d.getTime() > today.getTime();
-    const trained = trainedDates.has(toLocalDateKey(d));
+    const trained = trainedDates.has(dateKey);
+    const isRest = !trained && restDates.has(dateKey);
+    const canToggleRest = !trained && !isFuture;
     const cell = document.createElement("div");
-    cell.className = "day-cell" + (isToday ? " today" : "") + (trained ? " trained" : "") + (isFuture && !isToday ? " future" : "");
-    cell.innerHTML = `<div class="day-label">${WEEK_DAY_LETTERS[i]}</div><div class="day-dot">${trained ? "✓" : d.getDate()}</div>`;
+    cell.className = "day-cell"
+      + (isToday ? " today" : "")
+      + (trained ? " trained" : "")
+      + (isRest ? " rest" : "")
+      + (isFuture && !isToday ? " future" : "")
+      + (canToggleRest ? " toggleable" : "");
+    cell.title = canToggleRest ? (isRest ? "Quitar marca de descanso" : "Marcar como día de descanso") : "";
+    cell.innerHTML = `<div class="day-label">${WEEK_DAY_LETTERS[i]}</div><div class="day-dot">${trained ? "✓" : (isRest ? "😌" : d.getDate())}</div>`;
+    if(canToggleRest){
+      cell.addEventListener("click", ()=> toggleRestDay(dateKey));
+    }
     el.appendChild(cell);
   }
 
@@ -2447,11 +2488,20 @@ function renderWeekStrip(){
   renderRankBadge();
 }
 
+/** Marca/desmarca un día (AAAA-MM-DD local) como descanso, y refresca todo lo que depende de la racha. */
+function toggleRestDay(dateKey){
+  const idx = AppState.restDays.indexOf(dateKey);
+  if(idx === -1) AppState.restDays.push(dateKey);
+  else AppState.restDays.splice(idx, 1);
+  persistRestDays();
+  renderWeekStrip();
+}
+
 /** Racha de días seguidos entrenando, con la llamita solo activa (color) si la racha sigue viva (>=1). */
 function renderStreak(){
   const el = document.getElementById("streakLine");
   if(!el) return;
-  const streak = computeStreak(AppState.sessions);
+  const streak = computeStreak(AppState.sessions, AppState.restDays);
   el.classList.toggle("active", streak > 0);
   el.innerHTML = streak > 0
     ? `<span class="flame">🔥</span> ${streak} día${streak===1 ? "" : "s"} seguido${streak===1 ? "" : "s"}`
@@ -2500,6 +2550,9 @@ function renderAchievements(){
   const rank = computeRank(AppState.sessions);
   const pct = Math.round(rank.ratio * 100);
   const glowColor = RANK_TIERS[rank.index].colors[1];
+  const tierMin = RANK_TIERS[rank.index].min;
+  const nextMin = rank.next ? RANK_TIERS[rank.index+1].min : 1;
+  const tierProgress = rank.next ? Math.min(1, Math.max(0, (rank.ratio - tierMin) / (nextMin - tierMin))) : 1;
   const tiersListHtml = RANK_TIERS.map((tier, i) => {
     const state = i === rank.index ? "current" : (i < rank.index ? "passed" : "locked");
     return `
@@ -2519,7 +2572,8 @@ function renderAchievements(){
     <div class="rank-hero-badge" style="filter:drop-shadow(0 0 26px ${glowColor}80);">${rankBadgeSvg(rank.index, 168)}</div>
     <div class="rank-hero-name">${rank.name}</div>
     <div class="rank-hero-stats"><strong>${pct}%</strong> del catálogo dominado (${rank.score} de ${rank.max} puntos posibles)</div>
-    ${rank.next ? `<div class="rank-hero-next">Siguiente rango: <strong>${rank.next}</strong></div>` : `<div class="rank-hero-next">🌟 ¡Rango máximo alcanzado!</div>`}
+    <div class="rank-progress-track"><div class="rank-progress-fill" style="width:${Math.round(tierProgress*100)}%; background:linear-gradient(90deg, ${RANK_TIERS[rank.index].colors[0]}, ${glowColor});"></div></div>
+    ${rank.next ? `<div class="rank-hero-next">${Math.round(tierProgress*100)}% hacia <strong>${rank.next}</strong></div>` : `<div class="rank-hero-next">🌟 ¡Rango máximo alcanzado!</div>`}
     <button type="button" class="rank-tiers-toggle" id="btnToggleRankTiers">Ver todos los rangos <span class="chevron">▾</span></button>
     <div class="rank-tiers-list" id="rankTiersList" hidden>${tiersListHtml}</div>
   `;
@@ -2530,7 +2584,7 @@ function renderAchievements(){
     toggleBtn.classList.toggle("open", !tiersList.hidden);
   });
 
-  const achievements = computeAchievements(AppState.sessions, AppState.muscleLogs);
+  const achievements = computeAchievements(AppState.sessions, AppState.muscleLogs, AppState.restDays);
   const sorted = [...achievements].sort((a,b) => (a.unlocked === b.unlocked) ? 0 : (a.unlocked ? -1 : 1));
   const unlockedCount = achievements.filter(a=>a.unlocked).length;
 
@@ -3265,14 +3319,15 @@ function _assertTrue(cond, msg){ if(!cond) throw new Error(msg || "se esperaba u
  * pantalla quede tan intacta como los datos.
  */
 function withSandboxedState(fn){
-  const keysToBackup = [STORE_KEYS.plan, STORE_KEYS.notes, STORE_KEYS.sessions, STORE_KEYS.muscleup, "__test_roundtrip__"];
+  const keysToBackup = [STORE_KEYS.plan, STORE_KEYS.notes, STORE_KEYS.sessions, STORE_KEYS.muscleup, STORE_KEYS.restDays, "__test_roundtrip__"];
   const storageBackup = {};
   keysToBackup.forEach(k => { storageBackup[k] = localStorage.getItem(k); });
   const stateBackup = {
     todayPlan: AppState.todayPlan,
     sessions: AppState.sessions,
     muscleLogs: AppState.muscleLogs,
-    sessionNotes: AppState.sessionNotes
+    sessionNotes: AppState.sessionNotes,
+    restDays: AppState.restDays
   };
   try{
     fn();
@@ -3285,6 +3340,7 @@ function withSandboxedState(fn){
     AppState.sessions = stateBackup.sessions;
     AppState.muscleLogs = stateBackup.muscleLogs;
     AppState.sessionNotes = stateBackup.sessionNotes;
+    AppState.restDays = stateBackup.restDays;
     if(typeof renderPlan === "function") renderPlan();
     if(typeof renderRecoSummary === "function") renderRecoSummary("", []);
     if(typeof renderHistory === "function") renderHistory();
@@ -3840,6 +3896,41 @@ function runUnitTests(){
     const sessions = [today, threeAgo].map(d => ({date: d.toISOString(), exercises:[]}));
     _assertEqual(computeStreak(sessions), 1);
   });
+  test("computeStreak() no se rompe por un día marcado como descanso (split 4 entreno / 3 descanso)", () => {
+    const today = new Date(), yesterday = new Date(), twoAgo = new Date();
+    yesterday.setDate(today.getDate()-1); twoAgo.setDate(today.getDate()-2);
+    // Lunes (twoAgo) entrenó, martes (yesterday) descanso marcado, hoy entrena de nuevo: racha de 3.
+    const sessions = [today, twoAgo].map(d => ({date: d.toISOString(), exercises:[]}));
+    const restDays = [toLocalDateKey(yesterday)];
+    _assertEqual(computeStreak(sessions, restDays), 3);
+  });
+  test("computeStreak() sin marcar el descanso SÍ se rompería (para dejar claro que el fix es el marcado, no un cambio silencioso)", () => {
+    const today = new Date(), twoAgo = new Date();
+    twoAgo.setDate(today.getDate()-2);
+    const sessions = [today, twoAgo].map(d => ({date: d.toISOString(), exercises:[]}));
+    _assertEqual(computeStreak(sessions, []), 1);
+  });
+  test("toggleRestDay() marca/desmarca el día en AppState.restDays y persiste", () => {
+    withSandboxedState(() => {
+      AppState.restDays = [];
+      const key = toLocalDateKey(new Date());
+      toggleRestDay(key);
+      _assertTrue(AppState.restDays.includes(key), "debería añadir el día");
+      _assertEqual(loadJSON(STORE_KEYS.restDays, null), AppState.restDays);
+      toggleRestDay(key);
+      _assertTrue(!AppState.restDays.includes(key), "debería quitar el día al tocarlo otra vez");
+    });
+  });
+  test("un día de descanso marcado se ve en la tira semanal y es tocable si no hay sesión ese día", () => {
+    withSandboxedState(() => {
+      AppState.sessions = [];
+      AppState.restDays = [toLocalDateKey(new Date())];
+      renderWeekStrip();
+      const todayCell = document.querySelector(".week-strip .day-cell.today");
+      _assertTrue(todayCell.classList.contains("rest"), "hoy debería marcarse visualmente como descanso");
+      _assertTrue(todayCell.classList.contains("toggleable"), "un día sin sesión debe poder tocarse para (des)marcar descanso");
+    });
+  });
   test("computeMasteryScore() puntúa cada ejercicio distinto dominado una sola vez, ponderado por nivel", () => {
     const ex = findExercise("emp_flexion_estandar"); // Principiante -> peso 1
     const sessions = [
@@ -3995,6 +4086,25 @@ function runUnitTests(){
       toggleBtn.click();
       _assertTrue(tiersList.hidden === true, "debe volver a cerrarse al pulsar otra vez");
     });
+  });
+  test("renderAchievements() pinta una barra de progreso hacia el siguiente rango", () => {
+    withSandboxedState(() => {
+      AppState.sessions = [];
+      renderAchievements();
+      const fill = document.querySelector(".rank-progress-fill");
+      _assertTrue(!!fill, "debería existir la barra de progreso");
+      _assertEqual(fill.style.width, "0%", "sin historial, 0% de progreso hacia Bronce");
+    });
+  });
+  test("los logros de racha cuentan los días de descanso marcados, no solo los entrenados", () => {
+    const today = new Date(), yesterday = new Date(), twoAgo = new Date();
+    yesterday.setDate(today.getDate()-1); twoAgo.setDate(today.getDate()-2);
+    const sessions = [today, twoAgo].map(d => ({date: d.toISOString(), exercises:[]}));
+    const restDays = [toLocalDateKey(yesterday)];
+    const withRest = computeAchievements(sessions, [], restDays);
+    _assertTrue(withRest.find(a=>a.id==="streak_3").unlocked === true);
+    const withoutRest = computeAchievements(sessions, [], []);
+    _assertTrue(withoutRest.find(a=>a.id==="streak_3").unlocked === false);
   });
   _groupEnd();
 
