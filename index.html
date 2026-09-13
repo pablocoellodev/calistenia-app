@@ -1540,7 +1540,8 @@ const STORE_KEYS = {
   muscleup: "cal_muscleup_logs",
   userLevel: "cal_user_level",
   levelBannerDismissed: "cal_level_banner_dismissed",
-  restDays: "cal_rest_days"
+  restDays: "cal_rest_days",
+  recoSummary: "cal_reco_summary"
 };
 
 function loadJSON(key, fallback){
@@ -1569,10 +1570,20 @@ const AppState = {
   // Días (AAAA-MM-DD, hora local) marcados a mano como "descanso" — cuentan
   // para no romper la racha aunque no haya sesión guardada ese día, pero
   // nunca como sesión real (no suman a los logros de nº de sesiones).
-  restDays: loadJSON(STORE_KEYS.restDays, [])
+  restDays: loadJSON(STORE_KEYS.restDays, []),
+  // Explicación del último "Generar Entreno Recomendado" ({dayLabel, summaryLines}
+  // o null). Se guarda aparte del plan porque son texto derivado, no series —
+  // sin esto, recargar la app (o que la PWA se actualice) deja el plan de hoy
+  // intacto pero la tarjeta de explicación vacía, como si nunca hubiera existido.
+  recoSummary: loadJSON(STORE_KEYS.recoSummary, null)
 };
 
 function persistPlan(){ saveJSON(STORE_KEYS.plan, AppState.todayPlan); }
+function persistRecoSummary(){ saveJSON(STORE_KEYS.recoSummary, AppState.recoSummary); }
+/** Repinta la tarjeta de explicación del entreno recomendado a partir del AppState actual (o la vacía, si no hay ninguna guardada). */
+function renderRecoSummaryFromState(){
+  renderRecoSummary(AppState.recoSummary ? AppState.recoSummary.dayLabel : "", AppState.recoSummary ? AppState.recoSummary.summaryLines : []);
+}
 function persistSessions(){ saveJSON(STORE_KEYS.sessions, AppState.sessions); }
 function persistMuscleLogs(){ saveJSON(STORE_KEYS.muscleup, AppState.muscleLogs); }
 function persistNotes(){ saveJSON(STORE_KEYS.notes, AppState.sessionNotes); }
@@ -2911,8 +2922,10 @@ function runRecommendedWorkout(){
   }
   AppState.todayPlan = plan.planItems;
   persistPlan();
+  AppState.recoSummary = {dayLabel: plan.dayLabel, summaryLines: plan.summaryLines};
+  persistRecoSummary();
   renderPlan();
-  renderRecoSummary(plan.dayLabel, plan.summaryLines);
+  renderRecoSummaryFromState();
 }
 
 /**
@@ -3080,10 +3093,13 @@ function initDashboardEvents(){
     persistSessions();
     AppState.todayPlan = [];
     persistPlan();
+    AppState.recoSummary = null;
+    persistRecoSummary();
     sessionNotesEl.value = "";
     AppState.sessionNotes = "";
     persistNotes();
     renderPlan();
+    renderRecoSummaryFromState();
     renderHistory();
     renderWeekStrip();
     switchView("history");
@@ -3425,6 +3441,7 @@ function initInfoTips(){
   initVideoModal();
 
   renderPlan();
+  renderRecoSummaryFromState();
   renderMuscleHistory();
   renderLibrary();
   renderHistory();
@@ -3461,7 +3478,7 @@ function _assertTrue(cond, msg){ if(!cond) throw new Error(msg || "se esperaba u
  * pantalla quede tan intacta como los datos.
  */
 function withSandboxedState(fn){
-  const keysToBackup = [STORE_KEYS.plan, STORE_KEYS.notes, STORE_KEYS.sessions, STORE_KEYS.muscleup, STORE_KEYS.restDays, "__test_roundtrip__"];
+  const keysToBackup = [STORE_KEYS.plan, STORE_KEYS.notes, STORE_KEYS.sessions, STORE_KEYS.muscleup, STORE_KEYS.restDays, STORE_KEYS.recoSummary, "__test_roundtrip__"];
   const storageBackup = {};
   keysToBackup.forEach(k => { storageBackup[k] = localStorage.getItem(k); });
   const stateBackup = {
@@ -3469,8 +3486,16 @@ function withSandboxedState(fn){
     sessions: AppState.sessions,
     muscleLogs: AppState.muscleLogs,
     sessionNotes: AppState.sessionNotes,
-    restDays: AppState.restDays
+    restDays: AppState.restDays,
+    recoSummary: AppState.recoSummary
   };
+  // Algunos tests disparan botones reales (p.ej. "Guardar sesión de hoy")
+  // para probar su efecto de verdad, y esos botones abren modales o cambian
+  // de vista como efecto secundario normal. Sin este backup/restore, ese
+  // modal se queda abierto (o la vista activa cambiada) para el usuario
+  // real después de que runUnitTests() termine en cada carga de página.
+  const activeView = document.querySelector(".tab-btn.active")?.dataset.view;
+  const modalIds = ["levelModal", "rankModal", "reportModal", "videoModal"];
   try{
     fn();
   } finally {
@@ -3483,12 +3508,18 @@ function withSandboxedState(fn){
     AppState.muscleLogs = stateBackup.muscleLogs;
     AppState.sessionNotes = stateBackup.sessionNotes;
     AppState.restDays = stateBackup.restDays;
+    AppState.recoSummary = stateBackup.recoSummary;
     if(typeof renderPlan === "function") renderPlan();
-    if(typeof renderRecoSummary === "function") renderRecoSummary("", []);
+    if(typeof renderRecoSummaryFromState === "function") renderRecoSummaryFromState();
     if(typeof renderHistory === "function") renderHistory();
     if(typeof renderMuscleHistory === "function") renderMuscleHistory();
     if(typeof renderWeekStrip === "function") renderWeekStrip();
     if(typeof renderAchievements === "function") renderAchievements();
+    modalIds.forEach(id => {
+      const modal = document.getElementById(id);
+      if(modal) modal.style.display = "none";
+    });
+    if(activeView && typeof switchView === "function") switchView(activeView);
   }
 }
 
@@ -4359,6 +4390,33 @@ function runUnitTests(){
     const position = planList.compareDocumentPosition(addCard);
     _assertTrue(!!(position & Node.DOCUMENT_POSITION_FOLLOWING), "'Añadir ejercicio' debe ir después de #planList en el HTML");
   });
+  test("la explicación del entreno recomendado sobrevive a un 'reinicio' de la app (persiste en localStorage)", () => {
+    withSandboxedState(() => {
+      AppState.sessions = [];
+      AppState.todayPlan = [];
+      runRecommendedWorkout();
+      _assertTrue(AppState.recoSummary !== null, "runRecommendedWorkout() debe guardar la explicación en AppState.recoSummary");
+      _assertTrue(document.getElementById("recoTitleToggle") !== null, "debe pintarse en el DOM al generarse");
+
+      // Simula recargar la app: relee del localStorage en vez de confiar en la variable en memoria.
+      const reloaded = loadJSON(STORE_KEYS.recoSummary, null);
+      _assertTrue(reloaded !== null && reloaded.summaryLines.length > 0, "debe poder releerse de localStorage tras 'recargar'");
+      document.getElementById("recoSummary").innerHTML = ""; // simula el DOM vacío de una carga nueva
+      renderRecoSummaryFromState();
+      _assertTrue(document.getElementById("recoTitleToggle") !== null, "debe volver a pintarse solo con lo que hay en AppState, sin volver a generar nada");
+    });
+  });
+  test("guardar la sesión de hoy limpia la explicación del entreno recomendado (no debe quedar la de un entreno ya guardado)", () => {
+    withSandboxedState(() => {
+      AppState.sessions = [];
+      AppState.todayPlan = [];
+      runRecommendedWorkout();
+      _assertTrue(AppState.recoSummary !== null, "debe haber una explicación tras generar el entreno");
+      document.getElementById("btnSaveSession").click();
+      _assertTrue(AppState.recoSummary === null, "debe limpiarse tras guardar la sesión");
+      _assertTrue(document.getElementById("recoTitleToggle") === null, "no debe quedar la tarjeta de explicación en el DOM");
+    });
+  });
   _groupEnd();
 
   console.log("─".repeat(50));
@@ -4380,6 +4438,18 @@ function runUnitTests(){
 runUnitTests();
 
 if("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")){
+  // sw.js hace skipWaiting()+clients.claim(), así que un service worker nuevo
+  // toma el control casi enseguida tras un despliegue — pero eso NO recarga
+  // la página ya abierta, que se queda ejecutando el HTML/JS viejo en
+  // memoria (con el service worker nuevo sirviendo los assets nuevos por
+  // debajo). Sin este reload, una app ya abierta puede "actualizarse" sin
+  // que se note ningún cambio real hasta el siguiente cierre y apertura.
+  let reloadingForNewVersion = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if(reloadingForNewVersion) return;
+    reloadingForNewVersion = true;
+    location.reload();
+  });
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("sw.js").catch((err) => console.warn("SW registration failed:", err));
   });
