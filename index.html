@@ -655,6 +655,14 @@
       <div>Aún no has guardado ninguna sesión.</div>
       <div class="faint">Termina un entreno en "Hoy" para verlo aquí.</div>
     </div>
+
+    <div class="card" id="backupCard">
+      <div class="card-title">Copia de seguridad</div>
+      <p class="muted" style="font-size:12.5px; margin:0 0 12px;">Todo tu historial vive solo en este móvil y este navegador. Descarga una copia de vez en cuando (o antes de cambiar de móvil, borrar datos del navegador, etc.) para no depender solo de eso.</p>
+      <button type="button" class="btn btn-block" id="btnExportBackup" style="margin-bottom:8px;">⬇️ Descargar copia de seguridad</button>
+      <button type="button" class="btn btn-block btn-ghost" id="btnImportBackup">⬆️ Restaurar desde un archivo</button>
+      <input type="file" id="importBackupFile" accept="application/json" style="display:none;">
+    </div>
   </section>
 
   <!-- ===================== ACHIEVEMENTS ===================== -->
@@ -3409,6 +3417,76 @@ function renderHistory(){
 }
 
 /**
+ * Copia de seguridad manual: todo el historial vive solo en el
+ * localStorage de este navegador/móvil, sin servidor de por medio, así que
+ * un cambio de móvil, borrar datos del navegador, o desinstalar el acceso
+ * directo en según qué plataformas (Android puede tratar un PWA instalado
+ * como una app aparte con su propio almacenamiento) puede perder el
+ * historial sin aviso. Exporta/restaura un único JSON con todas las claves
+ * de STORE_KEYS tal cual están en localStorage.
+ */
+/** Solo construye el objeto a exportar, sin tocar el DOM — separado de exportBackup() para poder probarlo sin disparar una descarga real. */
+function buildBackupPayload(){
+  const data = {};
+  Object.values(STORE_KEYS).forEach(key => { data[key] = localStorage.getItem(key); });
+  return {app:"calistenia-pablo", version:1, exportedAt:new Date().toISOString(), data};
+}
+
+function exportBackup(){
+  const payload = buildBackupPayload();
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `calistenia-backup-${toLocalDateKey(new Date())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Valida un JSON de copia de seguridad. Puro: no toca localStorage ni el DOM, solo dice si es válido y por qué si no. */
+function validateBackupPayload(payload){
+  if(!payload || typeof payload !== "object") return {ok:false, reason:"Ese archivo no es una copia de seguridad válida (no es JSON)."};
+  if(payload.app !== "calistenia-pablo" || !payload.data) return {ok:false, reason:"Ese archivo no parece una copia de seguridad de esta app."};
+  return {ok:true};
+}
+
+/** Escribe en localStorage cada clave del payload tal cual estaba al exportar. Impuro (toca localStorage) pero no el DOM ni AppState — quien la llame decide si recarga después. */
+function applyBackupPayload(payload){
+  Object.entries(payload.data).forEach(([key, value]) => {
+    if(value === null || value === undefined) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  });
+}
+
+/** Restaura un JSON generado por exportBackup(): valida, confirma con el usuario, escribe cada clave en localStorage y recarga para rehidratar AppState desde cero. */
+function importBackup(file){
+  const reader = new FileReader();
+  reader.onload = () => {
+    let payload;
+    try{ payload = JSON.parse(reader.result); }
+    catch(e){ alert("Ese archivo no es una copia de seguridad válida (no es JSON)."); return; }
+    const check = validateBackupPayload(payload);
+    if(!check.ok){ alert(check.reason); return; }
+    if(!confirm("Esto reemplazará TODO lo que tengas guardado ahora mismo (entreno de hoy, historial, logros) por lo que hay en el archivo. ¿Continuar?")) return;
+    applyBackupPayload(payload);
+    location.reload();
+  };
+  reader.readAsText(file);
+}
+
+function initBackupEvents(){
+  document.getElementById("btnExportBackup").addEventListener("click", exportBackup);
+  const fileInput = document.getElementById("importBackupFile");
+  document.getElementById("btnImportBackup").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    if(fileInput.files[0]) importBackup(fileInput.files[0]);
+    fileInput.value = "";
+  });
+}
+
+/**
  * Delegación global para los tooltips "i" (p.ej. la explicación del RPE).
  * Un solo listener sirve para cualquier cantidad de tooltips que se generen
  * dinámicamente (no hay que re-engancharlo cada vez que se re-renderiza el
@@ -3439,6 +3517,7 @@ function initInfoTips(){
   initLibraryEvents();
   initInfoTips();
   initVideoModal();
+  initBackupEvents();
 
   renderPlan();
   renderRecoSummaryFromState();
@@ -4415,6 +4494,49 @@ function runUnitTests(){
       document.getElementById("btnSaveSession").click();
       _assertTrue(AppState.recoSummary === null, "debe limpiarse tras guardar la sesión");
       _assertTrue(document.getElementById("recoTitleToggle") === null, "no debe quedar la tarjeta de explicación en el DOM");
+    });
+  });
+  _groupEnd();
+
+  _groupCollapsed("10) Copia de seguridad manual (exportar/importar)");
+  test("los botones e input de copia de seguridad existen en el DOM", () => {
+    _assertTrue(!!document.getElementById("btnExportBackup"), "debe existir el botón de exportar");
+    _assertTrue(!!document.getElementById("btnImportBackup"), "debe existir el botón de importar");
+    _assertTrue(!!document.getElementById("importBackupFile"), "debe existir el input de archivo");
+  });
+  test("buildBackupPayload() incluye todas las claves de STORE_KEYS con sus valores actuales", () => {
+    withSandboxedState(() => {
+      AppState.sessions = [{id:1, date:new Date().toISOString(), exercises:[]}];
+      persistSessions();
+      const payload = buildBackupPayload();
+      _assertEqual(payload.app, "calistenia-pablo");
+      _assertTrue(typeof payload.exportedAt === "string" && payload.exportedAt.length > 0);
+      Object.values(STORE_KEYS).forEach(key => {
+        _assertTrue(key in payload.data, `falta la clave "${key}" en el backup`);
+      });
+      _assertEqual(payload.data[STORE_KEYS.sessions], localStorage.getItem(STORE_KEYS.sessions));
+    });
+  });
+  test("validateBackupPayload() rechaza JSON ajeno y acepta el formato propio", () => {
+    _assertTrue(validateBackupPayload(null).ok === false, "null no es válido");
+    _assertTrue(validateBackupPayload({foo:"bar"}).ok === false, "un JSON cualquiera no es válido");
+    _assertTrue(validateBackupPayload({app:"otra-app", data:{}}).ok === false, "un backup de otra app no es válido");
+    _assertTrue(validateBackupPayload({app:"calistenia-pablo", data:{}}).ok === true, "el formato propio sí es válido");
+  });
+  test("applyBackupPayload() restaura el historial guardado exactamente como estaba en el archivo", () => {
+    withSandboxedState(() => {
+      AppState.sessions = [{id:99, date:new Date().toISOString(), exercises:[{name:"Flexiones estándar", family:"Empuje", sets:[]}]}];
+      persistSessions();
+      const savedPayload = buildBackupPayload();
+
+      AppState.sessions = [];
+      persistSessions();
+      _assertEqual(loadJSON(STORE_KEYS.sessions, []).length, 0, "tras 'perder' el historial debe quedar vacío");
+
+      applyBackupPayload(savedPayload);
+      const restored = loadJSON(STORE_KEYS.sessions, []);
+      _assertEqual(restored.length, 1, "applyBackupPayload() debe devolver el historial guardado");
+      _assertEqual(restored[0].id, 99);
     });
   });
   _groupEnd();
